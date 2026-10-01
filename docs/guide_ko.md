@@ -18,3 +18,13 @@ https://discord.com/developers/applications
 ![Discord](images/discord12.jpg)
 ![Discord](images/discord13.jpg)
 ![Discord](images/discord14.jpg)
+
+캐릭터 수 만큼 (상태봇을 사용할거라면 상태봇도) 생성해주시면 됩니다 
+
+### 3. OpenAPI Key 준비
+https://platform.openai.com/api-keys
+유료에요!! GPT를 사용하기 때문에 충전해주셔야 합니다! 
+
+![Open API Key](images/API01.jpg)
+![Open API Key](images/API02.jpg)
+![Open API Key](images/API03.jpg)
