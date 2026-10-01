@@ -25,6 +25,8 @@ https://discord.com/developers/applications
 
 ![Discord](images/discord10.jpg)
 
++ '채널 관리' 권한도 넣어주세요!
+
 ![Discord](images/discord11.jpg)
 
 ![Discord](images/discord12.jpg)
@@ -36,7 +38,7 @@ https://discord.com/developers/applications
 
 캐릭터 수 만큼 (상태봇을 사용할거라면 상태봇도) 생성해주시면 됩니다 
 
-상태봇은 '링크 임베드' 권한과 '채널 관리' 권한을 추가로 넣어주셔야 합니다 
+상태봇은 '링크 임베드' 권한을 추가로 넣어주셔야 합니다 
 
 ### 3. OpenAPI Key 준비
 
