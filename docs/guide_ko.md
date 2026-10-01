@@ -85,3 +85,7 @@ Generic-Character-RP-Bot-Windows\prompts 로 들어갑니다
 간단합니다. RPBot.exe를 더블클릭해서 한번 실행해주세요 
 
 ![RPBot](images/RPBot01.jpg)
+
+![RPBot](images/RPBot02.jpg)
+
+실행하고 나면 위와 같이 채널이 생성된 것을 볼 수 있습니다.
