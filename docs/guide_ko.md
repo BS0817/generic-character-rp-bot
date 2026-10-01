@@ -86,6 +86,6 @@ Generic-Character-RP-Bot-Windows\prompts 로 들어갑니다
 
 ![RPBot](images/RPBot01.jpg)
 
-![RPBot](images/RPBot02.jpg)
+![RPBot](images/RPBot02.png)
 
 실행하고 나면 위와 같이 채널이 생성된 것을 볼 수 있습니다.
