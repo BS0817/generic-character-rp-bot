@@ -1,5 +1,6 @@
 ---
-layout: null
+layout: guide
+title: 초보자용 설치 가이드
 permalink: /guide_ko.html
 ---
 
