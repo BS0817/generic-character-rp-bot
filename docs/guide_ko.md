@@ -36,21 +36,23 @@ https://discord.com/developers/applications
 ![Discord](images/discord14.jpg)
 
 
-캐릭터 수 만큼 (상태봇을 사용할거라면 상태봇도) 생성해주시면 됩니다 
+캐릭터 수만큼 (상태봇을 사용할 거라면 상태봇도) 생성해주시면 됩니다 
 
 상태봇은 '링크 임베드' 권한을 추가로 넣어주셔야 합니다 
 
-### 3. OpenAPI Key 준비
+### 3. OpenAI API Key 준비
 
 https://platform.openai.com/api-keys
 
-유료에요!! GPT를 사용하기 때문에 충전해주셔야 합니다! 
+GPT를 사용하기 때문에 이 프로그램의 설치와는 별도로 OpenAI API 사용료가 발생합니다. 
 
-![Open API Key](images/API01.jpg)
+** Chat GPT PLUS 구독이 아닙니다!!** 위 링크에서 충전하셔야 합니다. 
 
-![Open API Key](images/API02.jpg)
+![OpenAI API Key](images/API01.jpg)
 
-![Open API Key](images/API03.jpg)
+![OpenAI API Key](images/API02.jpg)
+
+![OpenAI API Key](images/API03.jpg)
 
 
 ### 4. 최신 릴리즈 다운받기 
@@ -82,7 +84,7 @@ Generic-Character-RP-Bot-Windows\prompts 로 들어갑니다
 
 ### 7. RPBot.exe 실행
 
-간단합니다. RPBot.exe를 더블클릭해서 한번 실행해주세요 
+간단합니다. RPBot.exe를 더블클릭해서 한 번 실행해 주세요 
 
 ![RPBot](images/RPBot01.jpg)
 
@@ -94,4 +96,4 @@ Generic-Character-RP-Bot-Windows\prompts 로 들어갑니다
 
 캐릭터를 @멘션 하여 말을 걸어보고, 정상적으로 답하는지 보면 됩니다. 
 
-그 이후엔 봇이 일정시간마다 자율 발언을 하고, 같은 장소에 있는 다른 캐릭터를 멘션하여 이야기를 시작할 수 도 있습니다. 
+그 이후엔 봇이 일정시간마다 자율 발언을 하고, 같은 장소에 있는 다른 캐릭터를 멘션하여 이야기를 시작할 수도 있습니다. 
