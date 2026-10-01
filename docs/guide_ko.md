@@ -51,7 +51,11 @@ https://platform.openai.com/api-keys
 
 GPT를 사용하기 때문에 이 프로그램의 설치와는 별도로 OpenAI API 사용료가 발생합니다. 
 
-** Chat GPT PLUS 구독이 아닙니다!!** 위 링크에서 충전하셔야 합니다. 
+** Chat GPT PLUS 구독이 아닙니다!!** 
+
+https://platform.openai.com/settings/organization/billing/overview
+
+금액 충전은 여기서 하시면 되겠습니다. 
 
 ![OpenAI API Key](images/API01.jpg)
 
