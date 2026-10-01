@@ -997,7 +997,8 @@ def touch_conversation_fatigue(channel_id):
                 conversation_fatigue[channel_id] // 2
             )
 
-    conversation_fatigue[channel_id] += 1    conversation_fatigue_updated_at[channel_id] = now
+    conversation_fatigue[channel_id] += 1
+    conversation_fatigue_updated_at[channel_id] = now
     return conversation_fatigue[channel_id]
 
 
