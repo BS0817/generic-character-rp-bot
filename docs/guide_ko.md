@@ -31,4 +31,7 @@ https://platform.openai.com/api-keys
 
 ### 4. 최신 릴리즈 다운받기 
 https://github.com/BS0817/generic-character-rp-bot/releases
+
 Generic-Character-RP-Bot-Windows.zip <- 이거 다운받으시면 됩니다
+
+압축을 풀어주세요
