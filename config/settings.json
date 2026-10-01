@@ -1,0 +1,70 @@
+{
+  "_설명": {
+    "안내": "세계관 공통 설정과 기능 ON/OFF를 정하는 파일입니다.",
+    "world_name": "세계 이름",
+    "world_description": "전체 세계관을 한두 문장으로 설명",
+    "common_rules": "모든 캐릭터에 공통 적용할 RP 규칙",
+    "features": "true=켜짐, false=꺼짐",
+    "channel_setup": "서버초기화 명령으로 채널/카테고리를 만들 때 사용하는 설정",
+    "timezone": "캐릭터의 수면/기상, 약속, 시간대별 이동 등에 사용하는 생활 시간대. IANA 형식 예: Asia/Seoul, Asia/Tokyo, America/New_York"
+  },
+  "world_name": "예시 RP 세계",
+  "world_description": "이 문장을 사용자가 만든 세계관의 짧은 설명으로 교체하세요.",
+  "common_rules": [
+    "캐릭터 프롬프트, 장소 설정, 최근 대화에 없는 중대한 세계관 사실을 임의로 만들어내지 않는다.",
+    "캐릭터는 자신의 성격에 따라 사용자의 부탁을 거절할 수 있다.",
+    "모든 장면에 큰 사건이 필요한 것은 아니며 평범한 일상 대화도 자연스럽게 한다."
+  ],
+  "features": {
+    "_설명": {
+      "world_simulation": "본서버의 장소/생활 상태 시뮬레이션 전체",
+      "place_movement": "캐릭터가 시간에 따라 장소를 자동 이동",
+      "autonomous_messages": "자율발언 및 먼저 말걸기",
+      "bot_to_bot_chat": "캐릭터봇끼리 자동 대화",
+      "long_term_memory": "사용자/캐릭터 관련 장기 기억 저장",
+      "relationships": "관계 설정 및 관계 변화",
+      "personal_rp": "다른 개인 서버에서 독립 RP",
+      "dm": "DM 대화",
+      "offline_mention_recovery": "프로그램 종료 중 받은 멘션/답글 복구",
+      "sleep_system": "수면/기상 시스템",
+      "away_system": "외출 시스템",
+      "appointments": "약속 시간에 따른 이동",
+      "dynamic_events": "같은 장소 캐릭터 사이의 작은 이벤트",
+      "city_events": "세계 전체에 드물게 발생하는 도시/세계 이벤트",
+      "status_dashboard": "상태봇 대시보드",
+      "presence": "Discord 커스텀 상태메시지"
+    },
+    "world_simulation": true,
+    "place_movement": true,
+    "autonomous_messages": true,
+    "bot_to_bot_chat": true,
+    "long_term_memory": true,
+    "relationships": true,
+    "personal_rp": true,
+    "dm": true,
+    "offline_mention_recovery": true,
+    "sleep_system": true,
+    "away_system": true,
+    "appointments": true,
+    "dynamic_events": true,
+    "city_events": true,
+    "status_dashboard": true,
+    "presence": true
+  },
+  "channel_setup": {
+    "_설명": {
+      "create_categories": "장소 group에 따라 Discord 카테고리를 자동 생성",
+      "create_status_channel": "상태봇 사용 시 상태 채널도 자동 생성",
+      "category_names": "group 내부 이름을 Discord 카테고리 이름으로 변환"
+    },
+    "create_categories": true,
+    "create_status_channel": true,
+    "category_names": {
+      "public": "공용 장소",
+      "outdoor": "실외",
+      "private": "개인 공간",
+      "system": "시스템"
+    }
+  },
+  "timezone": "Asia/Seoul"
+}
