@@ -32,10 +32,16 @@ else:
 
 os.chdir(APP_ROOT)
 
+# Railway Volume 등에서 SQLite와 로그를 배포 파일과 분리하여 보관한다.
+# 환경변수가 없으면 Windows/로컬에서 기존처럼 APP_ROOT에 저장한다.
+_data_path = os.getenv("BOT_DATA_DIR") or os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
+DATA_DIR = Path(_data_path).resolve() if _data_path else APP_ROOT
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 # CMD 로그 머리말
 # 캐릭터별 로그는 [캐릭터명], 공통 시스템 로그는 [General]로 표시
 # 콘솔 출력과 동시에 logs/bot_YYYY-MM-DD.log 파일에도 저장한다.
-LOG_DIR = str(APP_ROOT / "logs")
+LOG_DIR = str(DATA_DIR / "logs")
 
 # 현재 비동기 작업이 어느 대화 영역에서 발생했는지 기록한다.
 # ContextVar를 사용하므로 여러 서버/DM 메시지가 동시에 처리되어도 서로 섞이지 않는다.
@@ -141,7 +147,7 @@ log_message(
 load_dotenv(APP_ROOT / ".env")
 
 # 데이터베이스 경로
-DB_PATH = str(APP_ROOT / "discord_memory.db")
+DB_PATH = str(DATA_DIR / "discord_memory.db")
 
 # 봇 토큰과 API 키
 OPENAI_API_KEY = os.getenv(

@@ -46,6 +46,10 @@ GitHub Releases에 Windows 배포 ZIP이 올라온 경우 Python 설치 없이 �
 
 변경 전에는 설정 백업 여부를 묻고, 백업을 선택하면 `backup_setup/` 아래에 시각별 백업 폴더를 만듭니다. 캐릭터나 장소를 추가한 뒤에는 `RPBot.exe`를 다시 실행하고, 새 장소 채널이 필요하면 `/서버초기화`를 실행하세요.
 
+## Railway 24시간 클라우드 운영
+
+컴퓨터를 계속 켜 두지 않고 실행하려면 [Railway 한국어 배포 가이드](https://bs0817.github.io/generic-character-rp-bot/railway_ko.html)를 참고하세요. 비공개 GitHub 저장소에 본인 config/prompts를 준비하고, Railway Variables에 토큰을 넣고, `/data` Volume으로 SQLite와 로그를 보존합니다. Railway와 OpenAI API 요금이 각각 발생할 수 있습니다.
+
 ## 소스에서 실행
 
 Python 3.11 또는 3.12 권장.
