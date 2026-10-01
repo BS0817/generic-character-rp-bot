@@ -35,3 +35,7 @@ https://github.com/BS0817/generic-character-rp-bot/releases
 Generic-Character-RP-Bot-Windows.zip <- 이거 다운받으시면 됩니다
 
 압축을 풀어주세요
+
+RPBot_Setup.exe 를 실행해주세요
+
+### 5. 셋업 설정
