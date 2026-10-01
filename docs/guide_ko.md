@@ -28,3 +28,7 @@ https://platform.openai.com/api-keys
 ![Open API Key](images/API01.jpg)
 ![Open API Key](images/API02.jpg)
 ![Open API Key](images/API03.jpg)
+
+### 4. 최신 릴리즈 다운받기 
+https://github.com/BS0817/generic-character-rp-bot/releases
+Generic-Character-RP-Bot-Windows.zip <- 이거 다운받으시면 됩니다
