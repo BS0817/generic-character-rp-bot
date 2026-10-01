@@ -20,6 +20,7 @@ https://discord.com/developers/applications
 ![Discord](images/discord14.jpg)
 
 캐릭터 수 만큼 (상태봇을 사용할거라면 상태봇도) 생성해주시면 됩니다 
+상태봇은 '링크 임베드' 권한과 '채널 관리' 권한을 추가로 넣어주셔야 합니다 
 
 ### 3. OpenAPI Key 준비
 https://platform.openai.com/api-keys
@@ -39,3 +40,20 @@ Generic-Character-RP-Bot-Windows.zip <- 이거 다운받으시면 됩니다
 RPBot_Setup.exe 를 실행해주세요
 
 ### 5. 셋업 설정
+![setup](images/setup01.jpg)
+![setup](images/setup02.jpg)
+![setup](images/setup03.jpg)
+![setup](images/setup04.jpg)
+![setup](images/setup05.jpg)
+
+### 6. prompt 수정
+
+Generic-Character-RP-Bot-Windows\prompts 로 들어갑니다 
+
+각 캐릭터들의 설정에 맞게 템플릿으로 생성된 .txt 파일을 수정합니다
+
+### 7. RPBot.exe 실행
+
+간단합니다. RPBot.exe를 더블클릭해서 한번 실행해주세요 
+
+![setup](images/rpbot01.jpg)
