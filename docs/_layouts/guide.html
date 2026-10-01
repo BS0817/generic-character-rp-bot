@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ page.title | default: "초보자용 설치 가이드 - Generic Character RP Bot" }}</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:920px;margin:0 auto;padding:48px 24px;line-height:1.75}
+h1{font-size:2.2rem;margin-bottom:32px}
+h2,h3{margin-top:42px}
+img{display:block;max-width:100%;height:auto;margin:18px 0 28px;border-radius:10px;border:1px solid #d0d7de}
+a{word-break:break-all}
+code{background:#eee;padding:2px 6px;border-radius:5px}
+.back{display:inline-block;margin-bottom:24px;text-decoration:none}
+@media(prefers-color-scheme:dark){
+  body{background:#0d1117;color:#e6edf3}
+  code{background:#161b22}
+  img{border-color:#30363d}
+  a{color:#58a6ff}
+}
+</style>
+</head>
+<body>
+<a class="back" href="./">← 메인페이지로 돌아가기</a>
+{{ content }}
+</body>
+</html>
