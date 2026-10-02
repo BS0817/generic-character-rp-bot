@@ -25,7 +25,7 @@ if not exist ".buildvenv\Scripts\python.exe" (
 set "BPY=.buildvenv\Scripts\python.exe"
 "%BPY%" -m pip install --upgrade pip
 if errorlevel 1 goto :fail
-"%BPY%" -m pip install -r requirements.txt pyinstaller
+"%BPY%" -m pip install -r requirements.txt -r requirements-gui.txt pyinstaller
 if errorlevel 1 goto :fail
 
 if exist build rmdir /s /q build
@@ -34,12 +34,16 @@ if exist release rmdir /s /q release
 
 "%BPY%" -m PyInstaller --noconfirm --clean --onefile --console --name RPBot --collect-all discord --collect-all openai --collect-all dotenv --hidden-import aiohttp --hidden-import tzdata src\bot.py
 if errorlevel 1 goto :fail
-"%BPY%" -m PyInstaller --noconfirm --clean --onefile --console --name RPBot_Setup src\setup_wizard.py
+"%BPY%" -m PyInstaller --noconfirm --clean --onefile --windowed --name RPBot_Setup src\setup_gui.py
+if errorlevel 1 goto :fail
+
+"%BPY%" -m PyInstaller --noconfirm --clean --onefile --windowed --name RPBot_Updater src\update_helper.py
 if errorlevel 1 goto :fail
 
 mkdir release
 copy /y "dist\RPBot.exe" "release\RPBot.exe" >nul
 copy /y "dist\RPBot_Setup.exe" "release\RPBot_Setup.exe" >nul
+copy /y "dist\RPBot_Updater.exe" "release\RPBot_Updater.exe" >nul
 copy /y "README.md" "release\README_KO.md" >nul
 xcopy /e /i /y "config" "release\config" >nul
 xcopy /e /i /y "prompts" "release\prompts" >nul

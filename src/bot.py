@@ -32,6 +32,23 @@ else:
 
 os.chdir(APP_ROOT)
 
+# Hold an OS lock so the desktop updater cannot replace a running bot.
+from updater import BotLock
+_application_lock = BotLock(APP_ROOT)
+if not _application_lock.acquire():
+    raise SystemExit("RPBot이 이미 실행 중이거나 업데이트 중입니다.")
+if getattr(sys, "frozen", False):
+    import threading
+    from updater import startup_notice
+    _desktop_preferences = APP_ROOT / "desktop_settings.json"
+    try:
+        _check_updates = json.loads(_desktop_preferences.read_text(encoding="utf-8")).get("check_updates_on_start", True) if _desktop_preferences.exists() else True
+    except Exception:
+        _check_updates = True
+    if _check_updates:
+        threading.Thread(target=startup_notice, daemon=True).start()
+
+
 # Railway Volume 등에서 SQLite와 로그를 배포 파일과 분리하여 보관한다.
 # 환경변수가 없으면 Windows/로컬에서 기존처럼 APP_ROOT에 저장한다.
 _data_path = os.getenv("BOT_DATA_DIR") or os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
@@ -2595,6 +2612,10 @@ def configure_runtime_timezone():
 
 
 configure_runtime_timezone()
+
+if GENERIC_CONFIG_ACTIVE:
+    from runtime_options import validate_options
+    globals().update(validate_options(CUSTOM_SETTINGS.get("runtime", {})))
 
 if GENERIC_CONFIG_ACTIVE:
     log_message(

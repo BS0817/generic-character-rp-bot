@@ -16,3 +16,9 @@ __pycache__/
 .vscode/
 .DS_Store
 Thumbs.db
+backup_setup/
+profiles/
+desktop_settings.json
+rpbot-update-*/
+.rpbot-running.lock
+.rpbot-settings.lock
