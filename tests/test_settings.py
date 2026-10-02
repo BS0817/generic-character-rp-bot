@@ -101,7 +101,7 @@ class UpdateTests(unittest.TestCase):
         import os
         real=os.replace
         def replace(source,target):
-            if Path(source)==stage/FILES[1]: raise PermissionError('busy')
+            if Path(source).resolve()==(stage/FILES[1]).resolve(): raise PermissionError('busy')
             return real(source,target)
         with patch('update_helper.os.replace',side_effect=replace):
             with self.assertRaises(PermissionError): replace_binaries(self.root,stage)
