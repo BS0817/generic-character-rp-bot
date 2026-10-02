@@ -100,7 +100,7 @@ class BotLock:
         self.stream.seek(0)
         if os.name == 'nt':
             import msvcrt
-            if not self.stream.read(1):
+            if os.fstat(self.stream.fileno()).st_size == 0:
                 self.stream.write(b'0')
                 self.stream.flush()
             self.stream.seek(0)
