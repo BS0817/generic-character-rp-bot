@@ -6,8 +6,6 @@ permalink: /guide_ko.html
 
 # 초보자용 설치 가이드
 
-> v0.1.3부터 `RPBot_Setup.exe`는 GUI 설정 프로그램입니다. 아래 콘솔 스크린샷은 이전 버전 기준이며 Discord 서버·봇 생성 절차는 동일합니다.
-
 > 이 프로그램은 해당 CMD 창을 종료하면 봇의 활동이 비활성화됩니다.
 
 ### 1. Discord 서버 만들기
