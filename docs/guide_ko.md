@@ -45,9 +45,7 @@ https://discord.com/developers/applications
 
 ![Discord](images/discord09.jpg)
 
-![Discord](images/discord10.jpg)
-
-+ '채널 관리' 권한도 넣어주세요!
+![Discord](images/discord_fix01.jpg)
 
 ![Discord](images/discord11.jpg)
 
