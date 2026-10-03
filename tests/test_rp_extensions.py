@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from desktop_monitor import Monitor, read_snapshot
 
-SOURCE = ast.parse((Path(__file__).resolve().parents[1] / 'src/bot.py').read_text())
+SOURCE = ast.parse((Path(__file__).resolve().parents[1] / 'src/bot.py').read_text(encoding='utf-8'))
 
 
 def functions(names, namespace):
