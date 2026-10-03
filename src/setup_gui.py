@@ -15,13 +15,14 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QFormLayout,
     QLabel, QPushButton, QLineEdit, QPlainTextEdit, QCheckBox, QComboBox,
     QListWidget, QStackedWidget, QScrollArea, QMessageBox, QInputDialog,
-    QFileDialog, QSpinBox, QDoubleSpinBox, QTimeEdit, QDialog, QDialogButtonBox,
+    QFileDialog, QSpinBox, QDoubleSpinBox, QTimeEdit, QDialog, QDialogButtonBox, QSystemTrayIcon, QMenu, QStyle,
 )
 from settings_store import Store, app_root, atomic_write
 from app_version import VERSION
 from runtime_options import OPTIONS, validate_options
 from updater import latest_release, stage_release, launch_update, bot_running, BotLock
 from setup_wizard import FEATURE_QUESTIONS
+from monitor_panel import MonitorPanel
 
 STYLE = '''
 QWidget { background:#151822; color:#e6e8ef; font-family:"Malgun Gothic"; font-size:14px; }
@@ -41,10 +42,10 @@ QScrollArea { border:0; }
 QToolTip { background:#343b51; color:white; }
 '''
 CHAR_DEFAULT = dict(name='새 캐릭터', token_env='', prompt_file='', private_room=None,
-    sleep_start_range=[[1,0],[3,0]], wake_range=[[8,0],[10,0]], inventory=[], habits=[], goals=[], place_weights={}, restricted_places=[])
+    default_outfit='', current_outfit='', sleep_start_range=[[1,0],[3,0]], wake_range=[[8,0],[10,0]], inventory=[], habits=[], goals=[], place_weights={}, restricted_places=[])
 PLACE_DEFAULT = dict(channel_name='', description='', objects=[], group='public', parent=None,
     allowed_characters=[], time_multipliers=dict(morning=1.,day=1.,evening=1.,night=1.,late_night=1.))
-LABELS = {'name':'이름','token_env':'토큰 환경변수 이름','prompt_file':'프롬프트 경로',
+LABELS = {'default_outfit':'기본 복장','current_outfit':'현재 복장 (비우면 기본 복장)','name':'이름','token_env':'토큰 환경변수 이름','prompt_file':'프롬프트 경로',
     'private_room':'개인실 이름 (없으면 비워두기)','sleep_start_range':'취침 시작 범위','wake_range':'기상 범위',
     'inventory':'소지품 (한 줄에 하나)','habits':'생활 습관 (한 줄에 하나)','goals':'장기 목표 (한 줄에 하나)',
     'restricted_places':'출입 금지 장소 (한 줄에 하나)','channel_name':'Discord 채널 이름',
@@ -64,6 +65,14 @@ class Job(QThread):
             self.done.emit(self.fn())
         except Exception as error:
             self.failed.emit(str(error))
+
+
+class NoWheelSpinBox(QSpinBox):
+    def wheelEvent(self, event): event.ignore()
+
+
+class NoWheelDoubleSpinBox(QDoubleSpinBox):
+    def wheelEvent(self, event): event.ignore()
 
 
 class Fields:
@@ -91,7 +100,7 @@ class Fields:
                     adapters.add(subkey, subvalue)
             reader = lambda: dict(value, **adapters.values())
         elif isinstance(value, (int,float)):
-            widget = QSpinBox() if isinstance(value,int) else QDoubleSpinBox()
+            widget = NoWheelSpinBox() if isinstance(value,int) else NoWheelDoubleSpinBox()
             widget.setRange(0,100000); widget.setValue(value)
             if isinstance(widget,QDoubleSpinBox): widget.setDecimals(3)
             reader = widget.value
@@ -118,6 +127,7 @@ class Window(QMainWindow):
         super().__init__()
         self.root = Path(root or app_root())
         self.store = Store(self.root)
+        self.bot_process = None
         self.job = None
         self.release = None
         self.dirty = False
@@ -127,14 +137,21 @@ class Window(QMainWindow):
         sidebar=QVBoxLayout(); brand=QLabel('RPBot'); brand.setObjectName('title'); sidebar.addWidget(brand)
         sidebar.addWidget(QLabel(f'캐릭터 세계 관리  ·  v{VERSION}'))
         self.nav=QListWidget(); self.nav.setFixedWidth(220)
-        self.nav.addItems(['시작하기','캐릭터','장소','세계관 · 기능','관계','API · Discord','백업 · 복원','업데이트'])
+        self.nav.addItems(['시작하기','캐릭터','장소','세계관 · 기능','관계','API · Discord','백업 · 복원','업데이트','카테고리','모니터링'])
         sidebar.addWidget(self.nav); layout.addLayout(sidebar)
         self.stack=QStackedWidget(); layout.addWidget(self.stack,1)
-        self.builders=[self.home,lambda:self.collection('characters'),lambda:self.collection('places'),self.world,self.relations,self.connections,self.backups,self.updates]
+        self.builders=[self.home,lambda:self.collection('characters'),lambda:self.collection('places'),self.world,self.relations,self.connections,self.backups,self.updates,self.categories,lambda:MonitorPanel(self)]
         for _ in self.builders: self.stack.addWidget(QWidget())
         self.nav.currentRowChanged.connect(self.navigate)
         self.nav.setCurrentRow(0)
         self.statusBar().showMessage('설정 저장 후 실행 중인 봇을 재시작하면 적용됩니다.')
+        self.tray = QSystemTrayIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon), self)
+        menu = QMenu(self)
+        menu.addAction('관리 창 열기', self.showNormal)
+        menu.addAction('종료', self.close)
+        self.tray.setContextMenu(menu)
+        self.tray.activated.connect(lambda reason: self.showNormal() if reason == QSystemTrayIcon.ActivationReason.DoubleClick else None)
+        if QSystemTrayIcon.isSystemTrayAvailable(): self.tray.show()
         QTimer.singleShot(800,self.auto_check)
 
     def error(self,error): QMessageBox.warning(self,'확인해주세요',str(error))
@@ -197,8 +214,63 @@ class Window(QMainWindow):
         if self.dirty: raise ValueError('설정을 먼저 저장해주세요.')
         command=[str(self.root/'RPBot.exe')] if getattr(sys,'frozen',False) else [sys.executable,str(self.root/'src'/'bot.py')]
         if not Path(command[-1]).exists(): raise ValueError('RPBot 실행 파일이 없습니다.')
-        subprocess.Popen(command,cwd=self.root,creationflags=subprocess.CREATE_NEW_CONSOLE if os.name=='nt' else 0)
-        self.statusBar().showMessage('봇 실행 요청 완료 · 열린 콘솔에서 상태를 확인하세요.')
+        data_root = Path(self.store.env.get('BOT_DATA_DIR') or self.root)
+        if not data_root.is_absolute(): data_root = self.root / data_root
+        data_root.mkdir(parents=True, exist_ok=True)
+        env = dict(os.environ, RPBOT_MANAGED_DESKTOP='1', PYTHONUNBUFFERED='1')
+        with (data_root / 'desktop_startup.log').open('w', encoding='utf-8') as output:
+            self.bot_process = subprocess.Popen(command,cwd=self.root,env=env,stdout=output,stderr=subprocess.STDOUT,
+                                                creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
+        self.statusBar().showMessage('봇 실행 요청 완료 · 모니터링에서 상태를 확인하세요.')
+        self.nav.setCurrentRow(9)
+
+    def stop_bot(self):
+        if not bot_running(self.root):
+            self.statusBar().showMessage('실행 중인 봇이 없습니다.'); return
+        data_root = Path(self.store.env.get('BOT_DATA_DIR') or self.root)
+        if not data_root.is_absolute(): data_root = self.root / data_root
+        atomic_write(data_root / 'desktop_stop.request', 'stop')
+        self.statusBar().showMessage('종료 요청 완료 · 현재 처리 작업 후 연결을 정리합니다.')
+
+    def categories(self):
+        page, layout = self.page('카테고리 관리', '카테고리는 /서버초기화로 생성합니다. 이름 변경·삭제는 설정에만 적용되며 기존 Discord 채널은 유지됩니다.')
+        aliases = copy.deepcopy(self.store.data['settings'].get('channel_setup', {}).get('category_names', {}))
+        listing = QListWidget(); listing.addItems([f'{key} → {value}' for key,value in aliases.items()]); layout.addWidget(listing)
+        def selected():
+            row = listing.currentRow()
+            return list(aliases)[row] if 0 <= row < len(aliases) else None
+        def persist():
+            settings = copy.deepcopy(self.store.data['settings'])
+            settings.setdefault('channel_setup', {})['category_names'] = aliases
+            self.store.write_json('settings', settings); self.refresh()
+        def add():
+            key, ok = QInputDialog.getText(self, '카테고리 추가', '카테고리 키 (장소 그룹):')
+            if not ok: return
+            key = key.strip()
+            if not key or len(key)>100 or key in aliases: raise ValueError('중복되지 않는 1~100자 키를 입력하세요.')
+            name, ok = QInputDialog.getText(self, '카테고리 이름', 'Discord에 표시할 이름:', text=key)
+            if not ok: return
+            name = name.strip()
+            if not name or len(name)>100 or name in aliases.values(): raise ValueError('중복되지 않는 1~100자 이름을 입력하세요.')
+            aliases[key] = name; persist()
+        def rename():
+            key = selected()
+            if key is None: return
+            name, ok = QInputDialog.getText(self, '카테고리 이름 수정', '새 표시 이름:', text=aliases[key])
+            if not ok: return
+            name = name.strip()
+            if not name or len(name)>100 or any(v == name for k,v in aliases.items() if k != key): raise ValueError('중복되지 않는 1~100자 이름을 입력하세요.')
+            aliases[key] = name; persist()
+        def remove():
+            key = selected()
+            if key is None: return
+            if any(p.get('group') == key for p in self.store.data['places'].values() if isinstance(p,dict)):
+                raise ValueError('이 카테고리를 사용하는 장소의 카테고리를 먼저 변경하세요.')
+            if self.confirm('설정에서 카테고리를 삭제할까요? Discord의 기존 카테고리는 삭제하지 않습니다.'):
+                del aliases[key]; persist()
+        buttons = QHBoxLayout(); layout.addLayout(buttons)
+        for name, fn in [('추가',add),('이름 수정',rename),('삭제',remove)]: self.button(buttons,name,fn)
+        return page
 
     def collection(self,name):
         character=name=='characters'; title='캐릭터' if character else '장소'
@@ -223,7 +295,16 @@ class Window(QMainWindow):
                     value=dict(value)
                     for place in self.store.data['places']:
                         if not place.startswith('_'): value.setdefault(place,1)
-                fields.add(field,value,multiline=field=='description')
+                if not character and field == 'group':
+                    groups = self.store.data['settings'].get('channel_setup', {}).get('category_names', {})
+                    combo = QComboBox(); combo.setEditable(True)
+                    combo.addItems(list(dict.fromkeys([str(value or 'public'), *groups])))
+                    combo.setCurrentText(str(value or 'public'))
+                    fields.form.addRow('카테고리 (장소 그룹)', combo)
+                    fields.readers[field] = combo.currentText
+                    combo.currentTextChanged.connect(self.mark_dirty)
+                else:
+                    fields.add(field,value,multiline=field in ('description','default_outfit','current_outfit'))
             token=None; prompt=None; avatar=None
             if character:
                 token=fields.add('_token',self.store.env.get(existing.get('token_env',''),'') or '','Discord 봇 토큰',secret=True)
@@ -441,6 +522,19 @@ class Window(QMainWindow):
         if self.job and self.job.isRunning():
             self.error('다운로드 또는 확인이 끝난 뒤 창을 닫아주세요.'); event.ignore(); return
         if not self.discard(): event.ignore(); return
+        if bot_running(self.root):
+            dialog = QMessageBox(self)
+            dialog.setWindowTitle('RPBot 종료')
+            dialog.setText('봇이 실행 중입니다. 창을 어떻게 닫을까요?')
+            stop = dialog.addButton('봇 종료 후 닫기', QMessageBox.ButtonRole.AcceptRole)
+            tray = dialog.addButton('트레이로 최소화', QMessageBox.ButtonRole.ActionRole) if QSystemTrayIcon.isSystemTrayAvailable() else None
+            dialog.addButton('취소', QMessageBox.ButtonRole.RejectRole)
+            dialog.exec()
+            if tray is not None and dialog.clickedButton() == tray:
+                self.hide(); event.ignore(); return
+            if dialog.clickedButton() != stop: event.ignore(); return
+            self.stop_bot()
+        self.tray.hide()
         event.accept()
 
 
@@ -452,6 +546,7 @@ def main():
     try: window=Window()
     except Exception as error:
         QMessageBox.critical(None,'RPBot 설정을 열 수 없습니다',str(error)+'\n원본 파일은 변경하지 않았습니다. 설정 파일을 확인해주세요.'); return 1
+    if '--monitor' in sys.argv: window.nav.setCurrentRow(9)
     window.show(); return app.exec()
 
 
