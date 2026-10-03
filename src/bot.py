@@ -37,6 +37,12 @@ from updater import BotLock
 _application_lock = BotLock(APP_ROOT)
 if not _application_lock.acquire():
     raise SystemExit("RPBot이 이미 실행 중이거나 업데이트 중입니다.")
+if getattr(sys, "frozen", False) and not os.getenv('RPBOT_MANAGED_DESKTOP'):
+    import subprocess
+    _manager = APP_ROOT / 'RPBot_Setup.exe'
+    if _manager.exists():
+        subprocess.Popen([str(_manager), '--monitor'], cwd=APP_ROOT)
+
 if getattr(sys, "frozen", False):
     import threading
     from updater import startup_notice
@@ -54,6 +60,9 @@ if getattr(sys, "frozen", False):
 _data_path = os.getenv("BOT_DATA_DIR") or os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
 DATA_DIR = Path(_data_path).resolve() if _data_path else APP_ROOT
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+from desktop_monitor import Monitor, redact
+from dotenv import dotenv_values
+_monitor = Monitor(DATA_DIR, [v for k, v in {**dotenv_values(APP_ROOT / '.env'), **os.environ}.items() if 'TOKEN' in k or 'KEY' in k])
 
 # CMD 로그 머리말
 # 캐릭터별 로그는 [캐릭터명], 공통 시스템 로그는 [General]로 표시
@@ -84,7 +93,10 @@ def log_message(category, *parts):
         scope_label = "WORLD"
 
     prefix = f"[{category}][{scope_label}]"
+    parts = tuple(redact(part, _monitor.secrets) for part in parts)
     print(prefix, *parts)
+    _monitor.event('오류' if any('오류' in part or '실패' in part for part in parts) else '기록',
+                   str(category), ' '.join(parts), guild_id or scope)
 
     try:
         now = datetime.now(
@@ -838,6 +850,8 @@ def _normalize_character_config(raw_characters):
             "token_env": token_env,
             "prompt_file": prompt_file,
             "private_room": private_room,
+            "default_outfit": str(raw.get("default_outfit") or "").strip(),
+            "current_outfit": str(raw.get("current_outfit") or "").strip(),
             "sleep_start_range": _normalize_time_range(
                 raw.get("sleep_start_range"),
                 ((1, 0), (3, 0)),
@@ -894,6 +908,7 @@ STATUS_CHARACTER_ORDER = sorted(
 
 for _character, _config in CHARACTERS.items():
     _config["token"] = os.getenv(_config["token_env"])
+    if _config["token"]: _monitor.secrets = [*_monitor.secrets, _config["token"]]
 
 # 상태메시지 / 장소 / 생활 상태
 current_activity = {character: None for character in CHARACTERS}
@@ -2646,6 +2661,7 @@ STATUS_CHARACTER_ORDER = sorted(
 
 for _character, _config in CHARACTERS.items():
     _config["token"] = os.getenv(_config["token_env"])
+    if _config["token"]: _monitor.secrets = [*_monitor.secrets, _config["token"]]
 
 PRIVATE_ROOMS = {
     config["private_room"]: character
@@ -2734,7 +2750,12 @@ def load_character_prompt(character):
     # 공통 세계관/제약/출력 규칙은 COMMON_ROLEPLAY_RULES에서 중앙 관리한다.
     # 캐릭터 파일에는 앞으로 해당 캐릭터만의 정체, 성격, 말투, 관계,
     # 일상, 외형, 인게임 대사 참고 등을 중심으로 남기면 된다.
-    return character_prompt
+    outfit = config.get("current_outfit") or config.get("default_outfit")
+    return character_prompt + (
+        "\n\n[복장]\n현재 참고할 복장: " + (outfit or "미지정")
+        + "\n현재 복장이 지정되면 기본 복장보다 우선한다. 복장은 장면에 필요할 때만 묘사한다. "
+        "지정되지 않은 옷·신발·장신구를 임의로 추가하지 않는다."
+    )
 
 
 # -----------------------------
@@ -4625,12 +4646,12 @@ def get_guild_user_relation_context(guild_id, user_id, character):
 
     if custom_context:
         parts.append(
-            "개인 서버 고정 관계/설정:\n"
+            "이 서버의 고정 관계/설정:\n"
             + custom_context
             + "\n이 내용은 이 서버에서만 적용되는 고정 설정이다."
         )
 
-    return "\n\n".join(parts) if parts else "이 서버에서 지정된 고정 관계 없음"
+    return "\n\n".join(parts) if parts else ""
 
 
 def set_user_character_relation(user_id, character, relation_type=None, custom_context=None):
@@ -5589,6 +5610,8 @@ def generate_character_reply(
         character,
         relation_subject or user_subject,
     )
+    if fixed_relation_override:
+        fixed_relation_context = fixed_relation_override
     roleplay_profile_context = get_user_roleplay_profile_context(
         profile_subject or user_subject
     )
@@ -5661,6 +5684,7 @@ def generate_character_reply(
 사용자 캐릭터 프로필, 고정 관계 설정, 장기 기억은 서로 다른 정보다.
 사용자 캐릭터 프로필은 사용자 캐릭터 자체의 고정 설정으로 사용한다.
 고정 관계는 이 캐릭터와 사용자의 관계 틀로 사용하고, 장기 기억은 실제 대화에서 축적된 세부 정보로 사용한다.
+관계 설정이 있어도 캐릭터의 성격·말투·세계관 규칙은 유지한다.
 서로 충돌한다면 관리자 지정 고정 설정을 우선하되, 최근 대화에서 확인된 구체적 사실은 자연스럽게 함께 반영한다.
 
 현재 이 캐릭터만 알고 있는 정보/목격:
@@ -10774,6 +10798,9 @@ async def initialize_rp_server_channels(guild, create_categories=True, create_st
         result["created_categories"].append(category_name)
         return category
 
+    for category_key in aliases:
+        await get_category(category_key)
+
     for place in PLACE_CHANNELS:
         channel_name = PLACE_CHANNEL_NAMES.get(
             place,
@@ -11025,13 +11052,6 @@ def create_client(character):
         if interaction.guild is None:
             await interaction.response.send_message(
                 "이 명령은 서버 안에서만 사용할 수 있습니다.",
-                ephemeral=True,
-            )
-            return
-
-        if is_main_world_guild_id(interaction.guild.id):
-            await interaction.response.send_message(
-                "본서버에서는 기존 본서버 관계 시스템을 사용해주세요.",
                 ephemeral=True,
             )
             return
@@ -12079,7 +12099,7 @@ def create_client(character):
             )
 
             guild_relation_context = None
-            if personal_rp_mode:
+            if not is_dm:
                 guild_relation_context = get_guild_user_relation_context(
                     guild_id,
                     message.author.id,
@@ -12092,7 +12112,10 @@ def create_client(character):
                 else (current_character_place or place)
             )
 
-            reply, destination = generate_character_reply(
+            _monitor.request(character, message.id, '답변 생성 중', channel_id,
+                             f'{message.author.display_name}: {message.content}')
+            reply, destination = await asyncio.to_thread(
+                generate_character_reply,
                 character,
                 message.author.display_name,
                 user_subject,
@@ -12109,11 +12132,7 @@ def create_client(character):
                     else base_user_subject
                 ),
                 profile_subject=base_user_subject,
-                fixed_relation_override=(
-                    guild_relation_context
-                    if personal_rp_mode
-                    else None
-                ),
+                fixed_relation_override=guild_relation_context,
                 external_rp=personal_rp_mode,
             )
             
@@ -12268,12 +12287,14 @@ def create_client(character):
                 f"{reply_length}자",
             )
 
+            _monitor.request(character, message.id, '응답 대기 중', channel_id)
             await asyncio.sleep(reply_delay)
 
             await message.reply(
                 reply
             )
 
+            _monitor.request(character, message.id, '전송 완료', channel_id, reply)
             mark_discord_mention_processed(
                 character,
                 message.id,
@@ -12295,6 +12316,7 @@ def create_client(character):
                 )
 
         except Exception as e:
+            _monitor.request(character, message.id, '오류', message.channel.id, str(e))
             log_message(
                 config["name"],
                 'GPT 응답 오류:',
@@ -12613,7 +12635,27 @@ async def start_discord_client_resilient(label, client, token):
             await asyncio.sleep(wait_seconds)
 
 
+async def desktop_monitor_loop(main_task):
+    while True:
+        for key, config in CHARACTERS.items():
+            client = clients.get(key)
+            state = _monitor.characters.setdefault(key, {})
+            state.update(name=config['name'], connected=bool(client and client.is_ready()),
+                         place=current_place.get(key), activity=current_activity.get(key),
+                         outfit=config.get('current_outfit') or config.get('default_outfit') or '미지정',
+                         mood=character_state.get(key, {}).get('mood'))
+        _monitor.flush()
+        stop_file = DATA_DIR / 'desktop_stop.request'
+        if stop_file.exists():
+            stop_file.unlink(missing_ok=True)
+            main_task.cancel()
+            return
+        await asyncio.sleep(2)
+
+
 async def main():
+    (DATA_DIR / 'desktop_stop.request').unlink(missing_ok=True)
+    asyncio.create_task(desktop_monitor_loop(asyncio.current_task()))
     # 토큰이 설정된 캐릭터만 실행한다.
     enabled_characters = [
         character
@@ -12902,6 +12944,9 @@ async def main():
             await asyncio.gather(*login_tasks, return_exceptions=True)
 
         log_message("General", "Discord 클라이언트 정리 완료")
+        for state in _monitor.characters.values(): state['connected'] = False
+        _monitor.requests.clear()
+        _monitor.flush()
 
 
 init_db()
@@ -12917,6 +12962,6 @@ for _character in CHARACTERS:
 
 try:
     asyncio.run(main())
-except KeyboardInterrupt:
+except (KeyboardInterrupt, asyncio.CancelledError):
     print()
     log_message("General", "Discord 봇 종료 완료")

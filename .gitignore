@@ -22,3 +22,7 @@ desktop_settings.json
 rpbot-update-*/
 .rpbot-running.lock
 .rpbot-settings.lock
+
+desktop_monitor.json
+desktop_stop.request
+desktop_startup.log
