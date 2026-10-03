@@ -1,0 +1,57 @@
+name: Publish RPBot v0.1.4
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/release-v0.1.4.yml"]
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download tested Windows package
+        uses: actions/download-artifact@v4
+        with:
+          name: Generic-Character-RP-Bot-Windows
+          run-id: 37098547061
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: release-assets
+      - name: Verify package checksum
+        shell: powershell
+        run: |
+          $zip = "release-assets/Generic-Character-RP-Bot-Windows.zip"
+          $expected = (Get-Content "$zip.sha256").Split(" ")[0].ToLower()
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $expected) { throw "Package checksum mismatch" }
+      - name: Publish approved v0.1.4 release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/Generic-Character-RP-Bot-Windows.zip
+            release-assets/Generic-Character-RP-Bot-Windows.zip.sha256
+          tag_name: v0.1.4
+          target_commitish: fd9c204a5f98b9ebc7b5c5f0cad134cdcf0056ad
+          name: "RPBot v0.1.4 — PC 모니터링 · 복장 · 관계 · 카테고리"
+          body: |
+            ## 추가 기능
+            - PC 관리 창: 실행·정지, 연결·응답 진행, 장소·활동·복장, 최근 대화·기억·오류 확인
+            - 실행 중 창 닫기: 봇 종료 또는 트레이 최소화 선택
+            - 기본 복장·현재 복장 속성 및 AI 참고 규칙
+            - 본서버에서도 사용자·서버·캐릭터별 관계 명령 지원
+            - 셋업 카테고리 추가·이름 수정·삭제, 장소 그룹 선택 및 빈 카테고리 생성
+            - 숫자 입력칸의 마우스 휠 값 변경 방지
+
+            ## 업데이트
+            v0.1.3 사용자는 봇을 정지하고 RPBot_Setup.exe의 업데이트 메뉴에서 확인·설치하세요.
+            수동 설치 시 ZIP의 RPBot.exe, RPBot_Setup.exe, RPBot_Updater.exe 세 파일만 교체하세요.
+            기존 config/, prompts/, .env, 데이터베이스는 유지하세요.
+
+            ## 검증
+            Windows 실행 파일 세 개 빌드 및 테스트 24개 통과.
+            성공한 Windows 빌드의 ZIP과 SHA-256 파일을 그대로 게시합니다.
+          make_latest: true
+          draft: false
+          prerelease: false
