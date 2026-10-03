@@ -21,11 +21,36 @@
     "token_env": "DISCORD_CHARACTER_1_TOKEN",
     "prompt_file": "prompts/character_1.txt",
     "private_room": "예시 캐릭터 1 방",
-    "sleep_start_range": [[1, 0], [3, 0]],
-    "wake_range": [[8, 0], [10, 0]],
-    "inventory": ["작은 수첩"],
-    "habits": ["혼자 조용히 쉬는 시간을 갖는다", "주변 사람과 가벼운 잡담을 나눈다"],
-    "goals": ["자신의 관심사를 추구하면서 평범한 일상을 유지한다"],
+    "sleep_start_range": [
+      [
+        1,
+        0
+      ],
+      [
+        3,
+        0
+      ]
+    ],
+    "wake_range": [
+      [
+        8,
+        0
+      ],
+      [
+        10,
+        0
+      ]
+    ],
+    "inventory": [
+      "작은 수첩"
+    ],
+    "habits": [
+      "혼자 조용히 쉬는 시간을 갖는다",
+      "주변 사람과 가벼운 잡담을 나눈다"
+    ],
+    "goals": [
+      "자신의 관심사를 추구하면서 평범한 일상을 유지한다"
+    ],
     "place_weights": {
       "카페": 8,
       "거실": 10,
@@ -33,7 +58,9 @@
       "도서관": 7,
       "예시 캐릭터 1 방": 14
     },
-    "restricted_places": []
+    "restricted_places": [],
+    "default_outfit": "",
+    "current_outfit": ""
   },
   "character_2": {
     "_설명": "두 번째 캐릭터 예시입니다.",
@@ -41,11 +68,34 @@
     "token_env": "DISCORD_CHARACTER_2_TOKEN",
     "prompt_file": "prompts/character_2.txt",
     "private_room": "예시 캐릭터 2 방",
-    "sleep_start_range": [[0, 30], [2, 30]],
-    "wake_range": [[7, 30], [9, 30]],
+    "sleep_start_range": [
+      [
+        0,
+        30
+      ],
+      [
+        2,
+        30
+      ]
+    ],
+    "wake_range": [
+      [
+        7,
+        30
+      ],
+      [
+        9,
+        30
+      ]
+    ],
     "inventory": [],
-    "habits": ["주변 사람을 관찰한다", "가벼운 대화를 좋아한다"],
-    "goals": ["실제 상호작용을 통해 자연스럽게 관계를 만든다"],
+    "habits": [
+      "주변 사람을 관찰한다",
+      "가벼운 대화를 좋아한다"
+    ],
+    "goals": [
+      "실제 상호작용을 통해 자연스럽게 관계를 만든다"
+    ],
     "place_weights": {
       "카페": 7,
       "거실": 9,
@@ -53,6 +103,8 @@
       "도서관": 5,
       "예시 캐릭터 2 방": 14
     },
-    "restricted_places": []
+    "restricted_places": [],
+    "default_outfit": "",
+    "current_outfit": ""
   }
 }
