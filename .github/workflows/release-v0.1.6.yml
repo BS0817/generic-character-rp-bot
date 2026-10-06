@@ -1,0 +1,66 @@
+name: Publish RPBot v0.1.6
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/release-v0.1.6.yml"]
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download tested Windows package
+        uses: actions/download-artifact@v4
+        with:
+          name: Generic-Character-RP-Bot-Windows
+          run-id: 37519315093
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: release-assets
+      - name: Verify package checksum
+        shell: powershell
+        run: |
+          $zip = "release-assets/Generic-Character-RP-Bot-Windows.zip"
+          $expected = (Get-Content "$zip.sha256").Split(" ")[0].ToLower()
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $expected) { throw "Package checksum mismatch" }
+      - name: Publish approved v0.1.6 release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/Generic-Character-RP-Bot-Windows.zip
+            release-assets/Generic-Character-RP-Bot-Windows.zip.sha256
+          tag_name: v0.1.6
+          target_commitish: 0dbc3848d793a4388fcc728d37a4f4eb6ffa3a7b
+          name: "RPBot v0.1.6 — 설정 초안 유지 · 초보자 안내"
+          body: |
+            ## 설정창 개선
+            - 탭·캐릭터·장소·관계를 바꿔도 수정 내용 유지
+            - 종료 시 저장 후 종료 / 저장하지 않고 종료 / 취소 선택
+            - 저장 버튼은 모든 탭의 수정 내용을 검사한 뒤 함께 저장
+            - JSON 형식 오류와 저장 실패 시 입력 내용과 창 유지
+            - 캐릭터·장소·카테고리 변경과 프로필 이미지도 저장 전까지 초안으로 유지
+            - 체크박스 오른쪽에 간략한 기능 설명과 관련 설정 안내
+            - JSON 오류의 입력 항목·줄·위치를 한국어로 표시
+            - 좌석·메뉴 입력에 중괄호·대괄호·큰따옴표·쉼표 사용 예시
+            - 긴 텍스트 입력칸 확대와 오른쪽 아래 ↕ 높이 조절
+
+            ## 기본 예시
+            새 설치에는 엘리스·사야·유리의 캐릭터·프롬프트·복장 취향·장소 가중치·초기 관계와 공용 장소·개인실 예시를 제공합니다.
+            예시 캐릭터 화면에서 캐릭터 추가로 자신의 캐릭터를 만들도록 안내합니다.
+            기존 사용자에게 예시 캐릭터가 자동 추가되지는 않습니다.
+
+            ## 업데이트
+            봇을 종료하고 RPBot_Setup.exe의 업데이트 메뉴에서 확인·설치하세요.
+            수동 업데이트는 RPBot.exe, RPBot_Setup.exe, RPBot_Updater.exe 세 실행 파일만 교체하세요.
+            기존 config/, prompts/, .env, 데이터베이스는 유지하세요.
+            새 설치는 ZIP 전체를 풀고 연결 정보를 설정하세요.
+
+            ## 검증
+            로컬과 Windows에서 테스트 52개 통과.
+            Windows 실행 파일 세 개 빌드·ZIP 패키징과 SHA-256 검사 완료.
+          make_latest: true
+          draft: false
+          prerelease: false
