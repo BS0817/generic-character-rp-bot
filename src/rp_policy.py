@@ -3,6 +3,11 @@ import re
 from difflib import SequenceMatcher
 
 FEATURES = [
+    ('world_calendar', '세계 날짜·요일·계절', False),
+    ('seasonal_weather', '계절별 날씨 설정 반영', False),
+    ('weekly_schedules', '요일별 생활 일정', False),
+    ('opening_hours', '장소 영업시간', False),
+    ('anniversaries', '기념일·정기 행사', False),
     ('common_prompt', '최우선 공통 프롬프트', True),
     ('dialogue_guard', '대화 반복·종료 검사', True),
     ('relationship_guard', '고정 관계에 맞는 행동 검사', True),
@@ -46,7 +51,7 @@ def build_prompt(name, fields):
 
 def enabled(settings, key):
     value = settings.get('features', {}).get(key, dict((k,d) for k,_,d in FEATURES).get(key, True))
-    return value.strip().lower() not in ('false','off','0','no') if isinstance(value,str) else bool(value)
+    return value.strip().lower() not in ('false','off','0','no','n') if isinstance(value,str) else bool(value)
 
 def mode_rule(settings, scope='world'):
     if not enabled(settings, 'conversation_mode'): return ''

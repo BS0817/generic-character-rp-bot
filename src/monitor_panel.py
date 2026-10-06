@@ -23,6 +23,7 @@ class MonitorPanel(QWidget):
             button.clicked.connect(lambda checked=False, fn=action: window.guard(fn))
             controls.addWidget(button)
         self.status = QLabel(); controls.addWidget(self.status, 1); layout.addLayout(controls)
+        self.environment = QLabel("환경 정보 수신 대기"); self.environment.setWordWrap(True); layout.addWidget(self.environment)
         filters = QHBoxLayout(); layout.addLayout(filters)
         self.search = QLineEdit(); self.search.setPlaceholderText('이름 · 장소 · 활동 검색'); filters.addWidget(self.search)
         self.filter = QComboBox(); self.filter.addItems(['전체','연결','미연결','수면','깨어 있음','외출']); filters.addWidget(self.filter)
@@ -56,6 +57,8 @@ class MonitorPanel(QWidget):
         live = time.time() - snapshot.get('updated', 0) < 15
         online = sum(bool(states.get(k, {}).get('connected')) for k in keys) if live else 0
         self.status.setText(f'연결 {online}/{len(keys)} · ' + ('상태 수신 중' if live else '정지 또는 상태 수신 대기'))
+        environment=snapshot.get('environment',{})
+        self.environment.setText(' · '.join(f'{k}: {v}' for k,v in environment.items()) or '환경 정보 수신 대기')
         selected_key = self.characters.currentItem().data(256) if self.characters.currentItem() else ''
         query=self.search.text().strip().casefold(); category=self.filter.currentText()
         def accepts(k):

@@ -35,3 +35,10 @@ class FormHelpTests(unittest.TestCase):
             store.flush()
             self.assertEqual(json.loads(first.read_text())['a']['name'],'A')
             self.assertFalse(store.pending)
+
+    def test_calendar_json_examples_are_complete_and_valid(self):
+        from form_help import JSON_EXAMPLES
+        from world_calendar import validate_calendar
+        profiles=parse_json(JSON_EXAMPLES['season_profiles'])
+        schedules=parse_json(JSON_EXAMPLES['weekly_schedule'])
+        validate_calendar({'calendar':{'season_profiles':profiles}}, {'a':{'weekly_schedule':schedules}}, {'도서관':{}})

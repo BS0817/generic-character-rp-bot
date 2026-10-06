@@ -21,6 +21,7 @@ class Monitor:
         self.path = Path(root) / 'desktop_monitor.json'
         self.secrets = secrets
         self.events = deque(maxlen=200)
+        self.environment = {}
         self.characters = {}
         self.requests = {}
 
@@ -44,7 +45,7 @@ class Monitor:
     def flush(self):
         try:
             with self.lock:
-                atomic_write(self.path, json.dumps(dict(updated=time.time(), characters=self.characters,
+                atomic_write(self.path, json.dumps(dict(updated=time.time(), characters=self.characters, environment=self.environment,
                          requests=self.requests, events=list(self.events)), ensure_ascii=False, default=str))
         except OSError:
             # Monitoring failure must not interrupt a Discord reply.

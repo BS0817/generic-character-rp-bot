@@ -2,6 +2,16 @@
 import json
 
 CHECKBOX_HELP = {
+ 'world_calendar':'현실 또는 가상 세계 날짜·요일·계절을 사용합니다.',
+ 'seasonal_weather':'세계 계절에 설정한 날씨 가중치와 기온 범위를 사용합니다. 세계 달력이 필요합니다.',
+ 'weekly_schedules':'요일과 시간에 따른 활동·장소 선호를 반영합니다. 세계 달력과 월드 시뮬레이션이 필요합니다.',
+ 'opening_hours':'장소의 영업 요일·시간에 맞춰 자동 입장을 제한합니다. 관리자 강제 이동은 허용합니다.',
+ 'anniversaries':'생일·기념일·정기 행사를 아는 캐릭터에게 전달합니다. 세계 달력이 필요합니다.',
+ 'show_date':'Discord와 PC 모니터의 환경 영역에 세계 날짜를 표시합니다.',
+ 'show_weekday':'환경 영역에 세계 요일을 표시합니다.',
+ 'show_season':'환경 영역에 세계 계절을 표시합니다.',
+ 'public':'모든 월드 캐릭터가 알고 환경 영역에 표시하는 기념일입니다.',
+ 'enabled':'이 장소의 영업시간을 적용합니다. 세계관의 영업시간 기능도 켜야 합니다. 시작과 종료가 같으면 해당 요일 24시간 영업입니다.',
  'world_simulation':'본서버에서 장소·활동·생활 상태를 관리합니다. 끄면 월드 생활 판단이 멈춥니다.',
  'place_movement':'생활 상태와 장소 가중치에 따라 이동합니다. 월드 시뮬레이션이 필요합니다.',
  'autonomous_messages':'사용자 메시지 없이도 상황에 맞춰 먼저 발언합니다.',
@@ -40,6 +50,8 @@ CHECKBOX_HELP = {
 }
 JSON_HELP = '중괄호 { }는 이름과 값을 묶고, 대괄호 [ ]는 목록을 만듭니다. 소괄호 ( )는 JSON에 쓰지 않습니다. 이름과 문자는 큰따옴표 " "로 감싸고, 항목 사이는 쉼표로 구분하세요. 들여쓰기는 선택 사항이며 마지막 항목 뒤에는 쉼표를 쓰지 않습니다.'
 JSON_EXAMPLES = {'seats':'{"테이블 1": 4, "소파": 2}', 'menus':'{"전체": ["차", "샌드위치"], "아침": ["토스트"]}'}
+
+JSON_EXAMPLES.update(weekly_schedule='[{"days": ["월", "수", "금"], "start": "09:00", "end": "12:00", "activity": "독서", "place": "도서관"}]',season_profiles=json.dumps({'봄':{'months':[3,4,5],'temperature_min':8,'temperature_max':22,'weather_weights':{'맑음':40,'비':25}},'여름':{'months':[6,7,8],'temperature_min':22,'temperature_max':32,'weather_weights':{'맑음':45,'비':30}},'가을':{'months':[9,10,11],'temperature_min':8,'temperature_max':23,'weather_weights':{'맑음':45,'비':15}},'겨울':{'months':[12,1,2],'temperature_min':-5,'temperature_max':8,'weather_weights':{'맑음':35,'눈':20}}},ensure_ascii=False))
 
 def parse_json(text, label='설정', key=None):
     try:

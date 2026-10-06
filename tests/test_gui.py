@@ -32,7 +32,7 @@ class GuiTests(unittest.TestCase):
     def tearDown(self):
         self.window.dirty=False; self.window.close(); self.window.deleteLater(); self.temp.cleanup()
     def test_all_pages_construct_and_world_save(self):
-        for index in range(10):
+        for index in range(11):
             self.window.nav.setCurrentRow(index)
             self.assertEqual(self.window.stack.currentIndex(),index)
         self.window.nav.setCurrentRow(3)
@@ -272,3 +272,71 @@ class GuiTests(unittest.TestCase):
         saved=json.loads((self.root/'config/settings.json').read_text(encoding='utf-8'))
         self.assertEqual(saved['world_name'],'새 세계')
         self.assertEqual(saved['channel_setup']['category_names']['hotel'],'호텔')
+
+    def test_calendar_event_drafts_survive_tabs_and_save_with_world_changes(self):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QComboBox
+        self.window.nav.setCurrentRow(10)
+        page=self.window.stack.currentWidget()
+        next(w for w in page.findChildren(QCheckBox) if w.property('field_key')=='show_date').setChecked(False)
+        with patch('setup_gui.QInputDialog.getText',return_value=('test_event',True)):
+            next(b for b in page.findChildren(QPushButton) if b.text()=='기념일 추가').click()
+        name=next(w for w in page.findChildren(QLineEdit) if w.property('field_key')=='name' and w.parentWidget().property('draft_key')=='event:test_event')
+        name.setText('저장할 생일')
+        self.window.nav.setCurrentRow(3);self.window.stack.currentWidget().findChild(QLineEdit).setText('달력 세계')
+        self.window.nav.setCurrentRow(0);self.window.nav.setCurrentRow(10)
+        self.assertEqual(name.text(),'저장할 생일');self.window.save_all()
+        saved=json.loads((self.root/'config/settings.json').read_text(encoding='utf-8'))
+        self.assertEqual(saved['calendar_events']['test_event']['name'],'저장할 생일');self.assertEqual(saved['world_name'],'달력 세계')
+        self.assertIn('season_profiles',saved['calendar'])
+
+    def test_dependency_toggle_accept_and_cancel_restore_checks(self):
+        from unittest.mock import patch
+        self.window.nav.setCurrentRow(3);page=self.window.stack.currentWidget()
+        checks={w.property('field_key'):w for w in page.findChildren(QCheckBox)}
+        with patch.object(self.window,'confirm',return_value=False):checks['world_simulation'].setChecked(False)
+        self.assertTrue(checks['world_simulation'].isChecked());self.assertTrue(checks['place_movement'].isChecked());self.assertFalse(self.window.dirty)
+        with patch.object(self.window,'confirm',return_value=True):checks['world_simulation'].setChecked(False)
+        self.assertFalse(checks['place_movement'].isChecked());self.assertFalse(checks['sleep_system'].isChecked());self.assertTrue(checks['autonomous_messages'].isChecked())
+        self.window.save_all()
+        with patch.object(self.window,'confirm',return_value=True):checks['sleep_quality'].setChecked(True)
+        self.assertTrue(checks['world_simulation'].isChecked());self.assertTrue(checks['sleep_system'].isChecked())
+
+    def test_invalid_configuration_blocks_run_without_spawning(self):
+        from unittest.mock import patch
+        self.window.store.data['settings']['features']['world_simulation']=False
+        with patch('setup_gui.bot_running',return_value=False),patch('setup_gui.subprocess.Popen') as launch:
+            with self.assertRaises(ValueError):self.window.run_bot()
+            launch.assert_not_called()
+
+    def test_dirty_run_saves_before_launch_and_cancel_keeps_drafts(self):
+        from unittest.mock import patch,Mock
+        (self.root/'src').mkdir();(self.root/'src/bot.py').write_text('# fixture')
+        self.window.nav.setCurrentRow(3);self.window.stack.currentWidget().findChild(QLineEdit).setText('실행할 세계')
+        dialog=Mock();save=Mock();cancel=Mock();dialog.addButton.side_effect=[save,cancel];dialog.clickedButton.return_value=cancel
+        with patch('setup_gui.bot_running',return_value=False),patch('setup_gui.QMessageBox',return_value=dialog) as box,patch('setup_gui.subprocess.Popen') as launch:
+            box.ButtonRole.AcceptRole=0;box.ButtonRole.RejectRole=1
+            self.window.run_bot();launch.assert_not_called();self.assertTrue(self.window.dirty)
+            dialog.addButton.side_effect=[save,cancel];dialog.clickedButton.return_value=save
+            def assert_saved(*args,**kwargs):
+                self.assertEqual(json.loads((self.root/'config/settings.json').read_text(encoding='utf-8'))['world_name'],'실행할 세계')
+                self.assertFalse(self.window.dirty)
+                return Mock()
+            launch.side_effect=assert_saved;self.window.run_bot();launch.assert_called_once()
+        self.assertEqual(self.window.nav.currentRow(),9)
+
+    def test_failed_save_in_run_retains_draft_and_does_not_launch(self):
+        from unittest.mock import patch,Mock
+        self.window.nav.setCurrentRow(3);editor=self.window.stack.currentWidget().findChild(QLineEdit);editor.setText('실패 후 유지')
+        dialog=Mock();save=Mock();dialog.addButton.side_effect=[save,Mock()];dialog.clickedButton.return_value=save
+        with patch('setup_gui.bot_running',return_value=False),patch('setup_gui.QMessageBox',return_value=dialog),patch.object(self.window.store,'flush',side_effect=OSError('disk failure')),patch('setup_gui.subprocess.Popen') as launch:
+            with self.assertRaises(OSError):self.window.run_bot()
+            launch.assert_not_called()
+        self.assertTrue(self.window.dirty);self.assertEqual(editor.text(),'실패 후 유지')
+
+    def test_legacy_text_flags_render_as_checkboxes(self):
+        self.window.store.data['settings']['features']['world_simulation']='true'
+        self.window.store.data['settings']['features']['world_calendar']='off'
+        self.window.nav.setCurrentRow(3)
+        checks={w.property('field_key'):w for w in self.window.stack.currentWidget().findChildren(QCheckBox)}
+        self.assertTrue(checks['world_simulation'].isChecked());self.assertFalse(checks['world_calendar'].isChecked())
