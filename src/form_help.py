@@ -51,7 +51,7 @@ CHECKBOX_HELP = {
 JSON_HELP = '중괄호 { }는 이름과 값을 묶고, 대괄호 [ ]는 목록을 만듭니다. 소괄호 ( )는 JSON에 쓰지 않습니다. 이름과 문자는 큰따옴표 " "로 감싸고, 항목 사이는 쉼표로 구분하세요. 들여쓰기는 선택 사항이며 마지막 항목 뒤에는 쉼표를 쓰지 않습니다.'
 JSON_EXAMPLES = {'seats':'{"테이블 1": 4, "소파": 2}', 'menus':'{"전체": ["차", "샌드위치"], "아침": ["토스트"]}'}
 
-JSON_EXAMPLES.update(weekly_schedule='[{"days": ["월", "수", "금"], "start": "09:00", "end": "12:00", "activity": "독서", "place": "도서관"}]',season_profiles='"봄": {"months": [3, 4, 5], "temperature_min": 8, "temperature_max": 22, "weather_weights": {"맑음": 40, "비": 25}} — 바깥 중괄호 안에 모든 계절을 넣고 1~12월을 중복 없이 포함하세요.')
+JSON_EXAMPLES.update(weekly_schedule='[{"days": ["월", "수", "금"], "start": "09:00", "end": "12:00", "activity": "독서", "place": "도서관"}]',season_profiles=json.dumps({'봄':{'months':[3,4,5],'temperature_min':8,'temperature_max':22,'weather_weights':{'맑음':40,'비':25}},'여름':{'months':[6,7,8],'temperature_min':22,'temperature_max':32,'weather_weights':{'맑음':45,'비':30}},'가을':{'months':[9,10,11],'temperature_min':8,'temperature_max':23,'weather_weights':{'맑음':45,'비':15}},'겨울':{'months':[12,1,2],'temperature_min':-5,'temperature_max':8,'weather_weights':{'맑음':35,'눈':20}}},ensure_ascii=False))
 
 def parse_json(text, label='설정', key=None):
     try:
