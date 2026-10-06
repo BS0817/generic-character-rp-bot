@@ -34,7 +34,7 @@ class Monitor:
         self.requests[key] = dict(character=character, phase=phase, channel=str(channel), time=time.time())
         if text and phase not in ('전송 완료', '오류'):
             self.event('대화', character, text, channel)
-        if phase in ('전송 완료', '오류'):
+        if phase in ('전송 완료', '오류', '발언 보류'):
             if phase == '전송 완료':
                 self.characters.setdefault(character, {})['last_reply'] = time.time()
             self.event(phase, character, text or phase, channel)

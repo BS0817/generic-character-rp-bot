@@ -26,3 +26,5 @@ rpbot-update-*/
 desktop_monitor.json
 desktop_stop.request
 desktop_startup.log
+
+life_extensions.json

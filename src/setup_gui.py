@@ -23,6 +23,7 @@ from runtime_options import OPTIONS, validate_options
 from updater import latest_release, stage_release, launch_update, bot_running, BotLock
 from setup_wizard import FEATURE_QUESTIONS
 from monitor_panel import MonitorPanel
+from rp_policy import DEFAULT_COMMON_PROMPT, GUIDE_FIELDS, build_prompt
 
 STYLE = '''
 QWidget { background:#151822; color:#e6e8ef; font-family:"Malgun Gothic"; font-size:14px; }
@@ -42,10 +43,10 @@ QScrollArea { border:0; }
 QToolTip { background:#343b51; color:white; }
 '''
 CHAR_DEFAULT = dict(name='새 캐릭터', token_env='', prompt_file='', private_room=None,
-    default_outfit='', current_outfit='', sleep_start_range=[[1,0],[3,0]], wake_range=[[8,0],[10,0]], inventory=[], habits=[], goals=[], place_weights={}, restricted_places=[])
+    default_outfit='', current_outfit='', outfit_preferences_enabled=False, preferred_style='', preferred_colors='', disliked_outfits='', hated_outfits='', outfit_notes='', sleep_start_range=[[1,0],[3,0]], wake_range=[[8,0],[10,0]], inventory=[], habits=[], goals=[], place_weights={}, restricted_places=[])
 PLACE_DEFAULT = dict(channel_name='', description='', objects=[], group='public', parent=None,
-    allowed_characters=[], time_multipliers=dict(morning=1.,day=1.,evening=1.,night=1.,late_night=1.))
-LABELS = {'default_outfit':'기본 복장','current_outfit':'현재 복장 (비우면 기본 복장)','name':'이름','token_env':'토큰 환경변수 이름','prompt_file':'프롬프트 경로',
+    allowed_characters=[], seats={}, menus={'전체':[]}, nap_allowed=False, outdoor=False, activities=[], time_multipliers=dict(morning=1.,day=1.,evening=1.,night=1.,late_night=1.))
+LABELS = {'outfit_preferences_enabled':'복장 취향 사용','preferred_style':'선호 스타일','preferred_colors':'선호 색·소재','disliked_outfits':'별로 좋아하지 않는 복장','hated_outfits':'싫어하는 복장','outfit_notes':'복장 취향 추가 설명','seats':'좌석별 정원 (JSON)','menus':'시간대별 메뉴 (JSON)','nap_allowed':'낮잠 가능한 장소','outdoor':'야외 장소','activities':'단계별 활동 (한 줄에 하나)','default_outfit':'기본 복장','current_outfit':'현재 복장 (비우면 기본 복장)','name':'이름','token_env':'토큰 환경변수 이름','prompt_file':'프롬프트 경로',
     'private_room':'개인실 이름 (없으면 비워두기)','sleep_start_range':'취침 시작 범위','wake_range':'기상 범위',
     'inventory':'소지품 (한 줄에 하나)','habits':'생활 습관 (한 줄에 하나)','goals':'장기 목표 (한 줄에 하나)',
     'restricted_places':'출입 금지 장소 (한 줄에 하나)','channel_name':'Discord 채널 이름',
@@ -82,7 +83,12 @@ class Fields:
         self.readers = {}
     def add(self, key, value, label=None, secret=False, multiline=False):
         label = label or LABELS.get(key, key)
-        if isinstance(value, bool):
+        if key in ('seats','menus'):
+            widget = QPlainTextEdit(json.dumps(value,ensure_ascii=False,indent=2))
+            widget.setPlaceholderText('{"테이블 1": 4, "소파": 2}' if key=='seats' else '{"전체": ["차", "샌드위치"], "아침": ["토스트"]}')
+            widget.setToolTip('좌석은 이름: 정원, 메뉴는 아침·점심·저녁·야식·전체: 음식 이름 목록으로 입력하세요.')
+            reader = lambda: json.loads(widget.toPlainText())
+        elif isinstance(value, bool):
             widget = QCheckBox('사용')
             widget.setChecked(value)
             reader = widget.isChecked
@@ -313,7 +319,26 @@ class Window(QMainWindow):
                 prompt_path=existing.get('prompt_file') or f'prompts/{key}.txt'
                 path=self.store.safe_path(prompt_path)
                 prompt=QPlainTextEdit(path.read_text(encoding='utf-8-sig') if path.exists() else '[정체성]\n이름: '+existing.get('name',key)+'\n\n[성격]\n\n[말투]\n')
-                prompt.setMinimumHeight(240); fields.form.addRow('캐릭터 프롬프트',prompt)
+                prompt.setMinimumHeight(240); fields.form.addRow('캐릭터 프롬프트 (직접 편집)',prompt)
+                guided = Fields(fields.form)
+                for field,(label,hint) in GUIDE_FIELDS.items():
+                    widget = guided.add(field,existing.get('prompt_guide',{}).get(field,''),'작성 가이드 · '+label,multiline=True)
+                    widget.setPlaceholderText(hint)
+                preview = QPushButton('가이드로 프롬프트 미리보기'); fields.form.addRow('',preview)
+                def show_preview():
+                    values=guided.values()
+                    if not values['personality'].strip() or not values['speech'].strip():
+                        raise ValueError('핵심 성격과 말투를 입력해주세요.')
+                    draft=build_prompt(fields.values()['name'],values)
+                    dialog=QDialog(self); dialog.setWindowTitle('프롬프트 미리보기')
+                    box=QVBoxLayout(dialog); text=QPlainTextEdit(draft); text.setReadOnly(True); box.addWidget(text)
+                    buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel)
+                    buttons.button(QDialogButtonBox.StandardButton.Ok).setText('편집 칸에 적용')
+                    box.addWidget(buttons); buttons.accepted.connect(dialog.accept); buttons.rejected.connect(dialog.reject)
+                    dialog.resize(650,600)
+                    if dialog.exec()==QDialog.DialogCode.Accepted:
+                        prompt.setPlainText(draft); self.mark_dirty()
+                preview.clicked.connect(lambda:self.guard(show_preview))
                 avatar=QLabel('프로필 이미지 없음'); avatar.setMinimumHeight(100)
                 avatar_path=existing.get('profile_image')
                 if avatar_path:
@@ -337,7 +362,7 @@ class Window(QMainWindow):
                 if not str(values.get('name' if character else 'channel_name','')).strip(): raise ValueError('이름을 입력해주세요.')
                 if character:
                     if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*',values['token_env']): raise ValueError('토큰 환경변수 이름을 확인해주세요.')
-                    if values.get('private_room') and values['private_room'] not in self.store.data['places']:
+                    if values.get('private_room') and values['private_room'] not in self.store.data['places'] and values['private_room'] != existing.get('private_room'):
                         raise ValueError('개인실을 장소 메뉴에 먼저 추가해주세요.')
                     for other_key,other in self.store.data['characters'].items():
                         if other_key!=key and not other_key.startswith('_') and other.get('token_env')==values['token_env']:
@@ -345,9 +370,14 @@ class Window(QMainWindow):
                     self.store.safe_path(values['prompt_file'])
                     for restricted in values['restricted_places']:
                         if restricted not in self.store.data['places']: raise ValueError(f'없는 장소: {restricted}')
+                    values['prompt_guide']=guided.values()
                     self.store.save_prompt(values['prompt_file'],prompt.toPlainText())
                     self.store.write_env({values['token_env']:secret})
                 else:
+                    if not isinstance(values['seats'],dict) or any(not str(k).strip() or isinstance(v,bool) or not isinstance(v,int) or not 1<=v<=100 for k,v in values['seats'].items()):
+                        raise ValueError('좌석은 이름과 1~100 정원으로 입력해주세요.')
+                    if not isinstance(values['menus'],dict) or any(not isinstance(v,list) or any(not isinstance(m,str) or not m.strip() for m in v) for v in values['menus'].values()):
+                        raise ValueError('메뉴는 시간대별 음식 이름 목록으로 입력해주세요.')
                     if values.get('parent')==key: raise ValueError('상위 장소는 자기 자신일 수 없습니다.')
                     if values.get('parent') and values['parent'] not in self.store.data['places']: raise ValueError('상위 장소가 없습니다.')
                     seen={key}; ancestor=values.get('parent')
@@ -388,7 +418,18 @@ class Window(QMainWindow):
         fields,content=self.scrolled_form(layout); data=copy.deepcopy(self.store.data['settings'])
         fields.add('world_name',data.get('world_name',''),'세계 이름')
         fields.add('world_description',data.get('world_description',''),'세계 소개',multiline=True)
-        fields.add('common_rules',data.get('common_rules',[]),'공통 규칙 (한 줄에 하나)')
+        fields.add('common_rules',data.get('common_rules',[]),'세계 규칙 (한 줄에 하나)')
+        common=fields.add('common_prompt',data.get('common_prompt',DEFAULT_COMMON_PROMPT),'최우선 공통 행동·대화 규칙',multiline=True)
+        restore=QPushButton('공통 프롬프트 기본 규칙 복원'); fields.form.addRow('',restore)
+        restore.clicked.connect(lambda:common.setPlainText(DEFAULT_COMMON_PROMPT))
+        modes=Fields(fields.form)
+        for scope,label in [('world','월드'),('rp','개인·공동 RP'),('dm','DM')]:
+            combo=QComboBox()
+            for key,title in [('inherit','세계 기본값 사용'),('scene','현장 RP'),('messenger','메신저 RP'),('custom','직접 설정')]:
+                if scope!='world' or key!='inherit': combo.addItem(title,key)
+            combo.setCurrentIndex(max(0,combo.findData(data.get('conversation_modes',{}).get(scope,'custom' if scope=='world' else 'inherit'))))
+            fields.form.addRow(label+' 대화 방식',combo); modes.readers[scope]=combo.currentData
+        fields.add('custom_conversation_rule',data.get('custom_conversation_rule',''),'직접 설정 대화 방식',multiline=True)
         fields.add('timezone',data.get('timezone','Asia/Seoul'),'생활 시간대')
         features=Fields(fields.form)
         for key,label,default in FEATURE_QUESTIONS: features.add(key,data.get('features',{}).get(key,default),label)
@@ -402,6 +443,7 @@ class Window(QMainWindow):
         def save():
             values=fields.values(); ZoneInfo(values['timezone'])
             data['runtime']=dict(data.get('runtime',{}),**validate_options(runtime.values()))
+            data['conversation_modes']=modes.values()
             data.update(values); data['features']=dict(data.get('features',{}),**features.values())
             data['channel_setup']=dict(channel_data,**channels.values()); self.store.write_json('settings',data); self.ok()
         self.button(layout,'세계관 · 기능 저장',save); return page

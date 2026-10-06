@@ -3,10 +3,11 @@
     "안내": "세계관 공통 설정과 기능 ON/OFF를 정하는 파일입니다.",
     "world_name": "세계 이름",
     "world_description": "전체 세계관을 한두 문장으로 설명",
-    "common_rules": "모든 캐릭터에 공통 적용할 RP 규칙",
+    "common_rules": "세계 규칙. 최우선 공통 행동·대화 규칙은 common_prompt에 별도 저장",
     "features": "true=켜짐, false=꺼짐",
     "channel_setup": "서버초기화 명령으로 채널/카테고리를 만들 때 사용하는 설정",
-    "timezone": "캐릭터의 수면/기상, 약속, 시간대별 이동 등에 사용하는 생활 시간대. IANA 형식 예: Asia/Seoul, Asia/Tokyo, America/New_York"
+    "timezone": "캐릭터의 수면/기상, 약속, 시간대별 이동 등에 사용하는 생활 시간대. IANA 형식 예: Asia/Seoul, Asia/Tokyo, America/New_York",
+    "common_prompt": "모든 캐릭터에 적용할 최우선 행동·대화 규칙. Discord 인식 방식은 포함하지 않음"
   },
   "world_name": "예시 RP 세계",
   "world_description": "이 문장을 사용자가 만든 세계관의 짧은 설명으로 교체하세요.",
@@ -49,7 +50,19 @@
     "dynamic_events": true,
     "city_events": true,
     "status_dashboard": true,
-    "presence": true
+    "presence": true,
+    "common_prompt": true,
+    "dialogue_guard": true,
+    "relationship_guard": true,
+    "conversation_mode": true,
+    "outfit_preferences": false,
+    "seating": false,
+    "meal_stages": false,
+    "naps": false,
+    "sleep_quality": false,
+    "item_loans": false,
+    "activity_stages": false,
+    "outfit_condition": false
   },
   "channel_setup": {
     "_설명": {
@@ -66,5 +79,12 @@
       "system": "시스템"
     }
   },
-  "timezone": "Asia/Seoul"
+  "timezone": "Asia/Seoul",
+  "common_prompt": "[최우선 공통 행동·대화 규칙]\n이 규칙은 세계 규칙·캐릭터 설정의 충돌하는 일반 지시보다 우선한다. 캐릭터 고유의 성격과 말투는 유지한다.\n최근 발언과 의미·표현이 같은 내용을 불필요하게 반복하지 않는다. 말버릇과 필요한 강조는 허용한다.\n단순 동의나 맞장구만으로 대화를 계속 연장하지 않는다. 끝난 주제는 새 용건 없이 다시 꺼내지 않는다.\n상투적인 허락 질문 대신 구체적인 용건·관찰로 대화를 시작한다.\n이미 완료한 주문·식사·정리·물건 전달을 다시 시작하지 않는다.\n명시된 현재 상태·복장·소지품·장소·진행 중 행동과 모순되는 묘사를 하지 않는다.\n원래 적대·불신 관계를 몇 번의 잡담이나 친절만으로 해소하지 않는다. 필요한 협력·반환은 가능하다.\n직접 알거나 전달받은 정보만 활용한다. 전달받은 주장은 검증된 사실로 단정하지 않는다.\n다른 장면의 기억·비밀을 섞지 않는다. 꿈은 현실에서 발생한 확정 사건이 아니다.\n상대의 생각·대답·감정·행동을 임의로 확정하지 않는다.\n사용자의 직접 질문에는 답하되 자율발언에서는 새 내용이나 행동이 없으면 발언하지 않아도 된다.",
+  "conversation_modes": {
+    "world": "custom",
+    "rp": "inherit",
+    "dm": "inherit"
+  },
+  "custom_conversation_rule": "캐릭터 프롬프트와 현재 장면에 지정된 대화 방식을 따른다."
 }
