@@ -333,3 +333,10 @@ class GuiTests(unittest.TestCase):
             with self.assertRaises(OSError):self.window.run_bot()
             launch.assert_not_called()
         self.assertTrue(self.window.dirty);self.assertEqual(editor.text(),'실패 후 유지')
+
+    def test_legacy_text_flags_render_as_checkboxes(self):
+        self.window.store.data['settings']['features']['world_simulation']='true'
+        self.window.store.data['settings']['features']['world_calendar']='off'
+        self.window.nav.setCurrentRow(3)
+        checks={w.property('field_key'):w for w in self.window.stack.currentWidget().findChildren(QCheckBox)}
+        self.assertTrue(checks['world_simulation'].isChecked());self.assertFalse(checks['world_calendar'].isChecked())

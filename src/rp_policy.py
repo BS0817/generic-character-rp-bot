@@ -51,7 +51,7 @@ def build_prompt(name, fields):
 
 def enabled(settings, key):
     value = settings.get('features', {}).get(key, dict((k,d) for k,_,d in FEATURES).get(key, True))
-    return value.strip().lower() not in ('false','off','0','no') if isinstance(value,str) else bool(value)
+    return value.strip().lower() not in ('false','off','0','no','n') if isinstance(value,str) else bool(value)
 
 def mode_rule(settings, scope='world'):
     if not enabled(settings, 'conversation_mode'): return ''

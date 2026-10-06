@@ -33,6 +33,8 @@ def dependency_errors(settings):
             for parent in parents if not enabled(settings,parent)]
 
 def validate_features(settings):
+    if not isinstance(settings,dict) or not isinstance(settings.get('features',{}),dict):
+        raise ValueError('기능 설정은 이름과 true/false 값을 가진 객체로 입력하세요.')
     errors=dependency_errors(settings)
     if errors:
         lines=[f'• {LABELS.get(key,key)} → {LABELS.get(parent,parent)} 필요' for key,parent in errors]

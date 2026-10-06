@@ -23,7 +23,7 @@ from runtime_options import OPTIONS, validate_options
 from updater import latest_release, stage_release, launch_update, bot_running, BotLock
 from setup_wizard import FEATURE_QUESTIONS
 from monitor_panel import MonitorPanel
-from rp_policy import DEFAULT_COMMON_PROMPT, GUIDE_FIELDS, build_prompt
+from rp_policy import DEFAULT_COMMON_PROMPT, GUIDE_FIELDS, build_prompt, enabled
 from form_help import CHECKBOX_HELP, JSON_HELP, JSON_EXAMPLES, parse_json
 from feature_dependencies import validate_features, toggle_changes, LABELS as FEATURE_LABELS
 from world_calendar import CALENDAR_DEFAULT, EVENT_DEFAULT, HOURS_DEFAULT, validate_calendar
@@ -572,7 +572,7 @@ class Window(QMainWindow):
         fields.add('custom_conversation_rule',data.get('custom_conversation_rule',''),'직접 설정 대화 방식',multiline=True)
         fields.add('timezone',data.get('timezone','Asia/Seoul'),'생활 시간대')
         features=Fields(fields.form)
-        checks={key:features.add(key,data.get('features',{}).get(key,default),label) for key,label,default in FEATURE_QUESTIONS}
+        checks={key:features.add(key,enabled(data,key),label) for key,label,default in FEATURE_QUESTIONS}
         def change_feature(key,on):
             # Reconstruct the state before this click for a reversible dependency transaction.
             values=features.values(); values[key]=not on
