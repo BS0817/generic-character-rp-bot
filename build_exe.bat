@@ -45,6 +45,8 @@ copy /y "dist\RPBot.exe" "release\RPBot.exe" >nul
 copy /y "dist\RPBot_Setup.exe" "release\RPBot_Setup.exe" >nul
 copy /y "dist\RPBot_Updater.exe" "release\RPBot_Updater.exe" >nul
 copy /y "README.md" "release\README_KO.md" >nul
+mkdir release\docs
+copy /y "docs\example_characters_ko.md" "release\docs\example_characters_ko.md" >nul
 xcopy /e /i /y "config" "release\config" >nul
 xcopy /e /i /y "prompts" "release\prompts" >nul
 

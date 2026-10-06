@@ -17,13 +17,14 @@ from PySide6.QtWidgets import (
     QListWidget, QStackedWidget, QScrollArea, QMessageBox, QInputDialog,
     QFileDialog, QSpinBox, QDoubleSpinBox, QTimeEdit, QDialog, QDialogButtonBox, QSystemTrayIcon, QMenu, QStyle,
 )
-from settings_store import Store, app_root, atomic_write
+from settings_store import DraftStore, app_root, atomic_write
 from app_version import VERSION
 from runtime_options import OPTIONS, validate_options
 from updater import latest_release, stage_release, launch_update, bot_running, BotLock
 from setup_wizard import FEATURE_QUESTIONS
 from monitor_panel import MonitorPanel
 from rp_policy import DEFAULT_COMMON_PROMPT, GUIDE_FIELDS, build_prompt
+from form_help import CHECKBOX_HELP, JSON_HELP, JSON_EXAMPLES, parse_json
 
 STYLE = '''
 QWidget { background:#151822; color:#e6e8ef; font-family:"Malgun Gothic"; font-size:14px; }
@@ -76,6 +77,44 @@ class NoWheelDoubleSpinBox(QDoubleSpinBox):
     def wheelEvent(self, event): event.ignore()
 
 
+class TextHeightGrip(QLabel):
+    def __init__(self, editor):
+        super().__init__('↕',editor)
+        self.editor=editor; self.origin=None
+        self.setFixedSize(24,24); self.setCursor(Qt.CursorShape.SizeVerCursor)
+        self.setToolTip('끌어서 입력칸 높이를 조절하세요.')
+    def mousePressEvent(self,event):
+        if event.button()==Qt.MouseButton.LeftButton:
+            self.origin=(event.globalPosition().y(),self.editor.height()); event.accept()
+    def mouseMoveEvent(self,event):
+        if self.origin:
+            self.editor.setFixedHeight(max(120,int(self.origin[1]+event.globalPosition().y()-self.origin[0])))
+            event.accept()
+    def mouseReleaseEvent(self,event):
+        self.origin=None; event.accept()
+
+
+class ResizableTextEdit(QPlainTextEdit):
+    """Long text fields with an independent vertical size grip."""
+    def __init__(self, text='', height=190):
+        super().__init__(text)
+        self.setMinimumHeight(height)
+        self.grip=TextHeightGrip(self)
+        self.setViewportMargins(0,0,0,24)
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        self.grip.move(self.width()-self.grip.width()-4,self.height()-self.grip.height()-4)
+
+
+def checkbox_row(checkbox, key):
+    row = QWidget(); layout = QHBoxLayout(row); layout.setContentsMargins(0,0,0,0)
+    layout.addWidget(checkbox)
+    help_text = QLabel(CHECKBOX_HELP.get(key, '이 설정의 사용 여부를 선택합니다.'))
+    help_text.setWordWrap(True); help_text.setObjectName('muted')
+    layout.addWidget(help_text, 1)
+    return row
+
+
 class Fields:
     """Typed form adapters; unknown keys are preserved by the caller."""
     def __init__(self, form):
@@ -84,10 +123,10 @@ class Fields:
     def add(self, key, value, label=None, secret=False, multiline=False):
         label = label or LABELS.get(key, key)
         if key in ('seats','menus'):
-            widget = QPlainTextEdit(json.dumps(value,ensure_ascii=False,indent=2))
+            widget = ResizableTextEdit(json.dumps(value,ensure_ascii=False,indent=2), 240)
             widget.setPlaceholderText('{"테이블 1": 4, "소파": 2}' if key=='seats' else '{"전체": ["차", "샌드위치"], "아침": ["토스트"]}')
             widget.setToolTip('좌석은 이름: 정원, 메뉴는 아침·점심·저녁·야식·전체: 음식 이름 목록으로 입력하세요.')
-            reader = lambda: json.loads(widget.toPlainText())
+            reader = lambda: parse_json(widget.toPlainText(), label, key)
         elif isinstance(value, bool):
             widget = QCheckBox('사용')
             widget.setChecked(value)
@@ -111,8 +150,7 @@ class Fields:
             if isinstance(widget,QDoubleSpinBox): widget.setDecimals(3)
             reader = widget.value
         elif isinstance(value,list) or multiline:
-            widget = QPlainTextEdit('\n'.join(map(str,value)) if isinstance(value,list) else str(value or ''))
-            widget.setMinimumHeight(95); widget.setMaximumHeight(200)
+            widget = ResizableTextEdit('\n'.join(map(str,value)) if isinstance(value,list) else str(value or ''), 150 if isinstance(value,list) else 220)
             reader = (lambda: [line.strip() for line in widget.toPlainText().splitlines() if line.strip()]) if isinstance(value,list) else widget.toPlainText
         else:
             widget = QLineEdit(str(value or ''))
@@ -121,7 +159,10 @@ class Fields:
                 widget.setPlaceholderText('키 또는 토큰을 입력하세요')
             reader = widget.text
             if value is None: reader = lambda: widget.text().strip() or None
-        self.form.addRow(label,widget)
+        self.form.addRow(label, checkbox_row(widget,key) if isinstance(widget,QCheckBox) else widget)
+        if key in JSON_EXAMPLES:
+            help_label = QLabel(JSON_HELP + '\n예시: ' + JSON_EXAMPLES[key])
+            help_label.setWordWrap(True); help_label.setObjectName('muted'); self.form.addRow('',help_label)
         self.readers[key] = reader
         return widget
     def values(self):
@@ -132,7 +173,11 @@ class Window(QMainWindow):
     def __init__(self, root=None):
         super().__init__()
         self.root = Path(root or app_root())
-        self.store = Store(self.root)
+        self.store = DraftStore(self.root)
+        self.page_cache = {}
+        self.savers = {}
+        self.dirty_forms = set()
+        self._saving_all = False
         self.bot_process = None
         self.job = None
         self.release = None
@@ -150,7 +195,7 @@ class Window(QMainWindow):
         for _ in self.builders: self.stack.addWidget(QWidget())
         self.nav.currentRowChanged.connect(self.navigate)
         self.nav.setCurrentRow(0)
-        self.statusBar().showMessage('설정 저장 후 실행 중인 봇을 재시작하면 적용됩니다.')
+        self.statusBar().showMessage('저장 버튼은 모든 탭의 수정 내용을 저장합니다. 적용하려면 봇을 재시작하세요.')
         self.tray = QSystemTrayIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon), self)
         menu = QMenu(self)
         menu.addAction('관리 창 열기', self.showNormal)
@@ -165,34 +210,74 @@ class Window(QMainWindow):
         try: fn()
         except Exception as error: self.error(error)
     def ok(self):
-        self.dirty=False
-        self.statusBar().showMessage('저장 완료 · 이전 설정은 자동 백업했습니다. 봇을 재시작하면 적용됩니다.',10000)
+        if not self._saving_all:
+            self.store.flush()
+            self.dirty=False
+        if not self._saving_all:
+            self.statusBar().showMessage('저장 완료 · 이전 설정은 자동 백업했습니다. 봇을 재시작하면 적용됩니다.',10000)
     def confirm(self,text):
         return QMessageBox.question(self,'RPBot',text,QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)==QMessageBox.StandardButton.Yes
-    def mark_dirty(self,*args): self.dirty=True
+    def mark_dirty(self,*args):
+        self.dirty=True
+        widget=self.sender()
+        while isinstance(widget,QWidget):
+            token=widget.property('draft_key')
+            if token:
+                self.dirty_forms.add(token); break
+            widget=widget.parentWidget()
+        self.statusBar().showMessage('저장하지 않은 수정 사항이 있습니다. 탭을 이동해도 입력 내용은 유지됩니다.')
     def track(self,widget):
+        if widget.property('skip_dirty'): return
         for child in widget.findChildren(QWidget):
+            if child.property('draft_tracked'): continue
+            child.setProperty('draft_tracked',True)
             if child.property('skip_dirty') or (isinstance(child,QPlainTextEdit) and child.isReadOnly()): continue
-            for name in ('textEdited','textChanged','toggled','valueChanged','timeChanged'):
+            for name in ('textChanged','toggled','valueChanged','timeChanged','currentTextChanged'):
                 signal=getattr(child,name,None)
                 if signal is not None:
                     signal.connect(self.mark_dirty)
                     break
-    def discard(self):
-        return not self.dirty or self.confirm('저장하지 않은 변경 사항을 버릴까요?')
+    def save_all(self):
+        # Validate and stage every retained form before any disk writes.
+        before = (copy.deepcopy(self.store.data), dict(self.store.env), dict(self.store.pending))
+        self._saving_all = True
+        try:
+            for token,save in list(self.savers.items()):
+                if token in self.dirty_forms: save()
+            self.store.flush()
+        except Exception:
+            self.store.data, self.store.env, self.store.pending = before
+            self.statusBar().showMessage('저장하지 못했습니다. 수정 내용은 유지됩니다. 오류 항목을 확인하세요.')
+            raise
+        finally:
+            self._saving_all = False
+        self.dirty = False
+        self.dirty_forms.clear()
+        self.statusBar().showMessage('모든 수정 사항을 저장했습니다.')
+
     def navigate(self,index):
         if index<0: return
-        if not self.discard():
-            self.nav.blockSignals(True); self.nav.setCurrentRow(self.stack.currentIndex()); self.nav.blockSignals(False); return
-        self.dirty=False
+        previous = self.stack.currentIndex()
         try:
-            page=self.builders[index]()
+            if index not in self.page_cache:
+                page=self.builders[index]()
+                if index in (0,6,7,8,9): page.setProperty('skip_dirty',True)
+                old=self.stack.widget(index); self.stack.removeWidget(old); old.deleteLater()
+                self.stack.insertWidget(index,page); self.page_cache[index]=page
+                self.track(page)
+            page=self.page_cache[index]
+            if hasattr(page,'sync_items'): page.sync_items()
+            self.stack.setCurrentIndex(index)
         except Exception as error:
-            self.error(error); return
-        old=self.stack.widget(index); self.stack.removeWidget(old); old.deleteLater()
-        self.stack.insertWidget(index,page); self.stack.setCurrentIndex(index)
-        self.track(page)
-    def refresh(self): self.dirty=False; self.navigate(self.nav.currentRow())
+            self.nav.blockSignals(True); self.nav.setCurrentRow(previous); self.nav.blockSignals(False)
+            self.error(error)
+
+    def refresh(self):
+        # Only utility pages are rebuilt. Editing pages retain their widgets.
+        index=self.nav.currentRow()
+        if index in (0,6,7,8): self.page_cache.pop(index,None)
+        self.navigate(index)
+
     def page(self,title,note=''):
         page=QWidget(); layout=QVBoxLayout(page)
         heading=QLabel(title); heading.setObjectName('title'); layout.addWidget(heading)
@@ -248,7 +333,7 @@ class Window(QMainWindow):
         def persist():
             settings = copy.deepcopy(self.store.data['settings'])
             settings.setdefault('channel_setup', {})['category_names'] = aliases
-            self.store.write_json('settings', settings); self.refresh()
+            self.store.write_json('settings', settings); self.mark_dirty(); self.refresh()
         def add():
             key, ok = QInputDialog.getText(self, '카테고리 추가', '카테고리 키 (장소 그룹):')
             if not ok: return
@@ -288,13 +373,22 @@ class Window(QMainWindow):
         layout.addLayout(toolbar)
         body=QWidget(); body_layout=QVBoxLayout(body); layout.addWidget(body,1)
         selected=[selector.currentText()]
+        panels = {}
+        selector.setProperty('skip_dirty',True)
         def render(key):
             if not key: return
-            while body_layout.count():
-                item=body_layout.takeAt(0)
-                if item.widget(): item.widget().deleteLater()
+            for panel in panels.values(): panel.hide()
+            if key in panels:
+                panels[key].show(); return
+            panel=QWidget(); panel_layout=QVBoxLayout(panel); panel_layout.setContentsMargins(0,0,0,0)
+            body_layout.addWidget(panel); panels[key]=panel
+            draft_token=f'{name}:{key}'; panel.setProperty('draft_key',draft_token)
             existing=copy.deepcopy(self.store.data[name][key]); defaults=CHAR_DEFAULT if character else PLACE_DEFAULT
-            fields,content=self.scrolled_form(body_layout)
+            fields,content=self.scrolled_form(panel_layout)
+            panel_layout.insertWidget(0,QLabel('저장 버튼은 모든 탭의 수정 내용을 함께 저장합니다.'))
+            if existing.get('is_example'):
+                notice=QLabel('이 캐릭터는 참고용 예시입니다. 예시를 수정해 사용하기보다 위의 ‘캐릭터 추가’로 새 캐릭터를 만드세요.')
+                notice.setWordWrap(True); notice.setObjectName('muted'); panel_layout.insertWidget(0,notice)
             for field,default in defaults.items():
                 value=existing.get(field,copy.deepcopy(default))
                 if field=='place_weights':
@@ -310,16 +404,16 @@ class Window(QMainWindow):
                     fields.readers[field] = combo.currentText
                     combo.currentTextChanged.connect(self.mark_dirty)
                 else:
-                    fields.add(field,value,multiline=field in ('description','default_outfit','current_outfit'))
+                    fields.add(field,value,multiline=field in ('description','default_outfit','current_outfit','preferred_style','preferred_colors','disliked_outfits','hated_outfits','outfit_notes'))
             token=None; prompt=None; avatar=None
             if character:
                 token=fields.add('_token',self.store.env.get(existing.get('token_env',''),'') or '','Discord 봇 토큰',secret=True)
-                show=QCheckBox('토큰 보기'); show.setProperty('skip_dirty',True); fields.form.addRow('',show)
+                show=QCheckBox('토큰 보기'); show.setProperty('skip_dirty',True); fields.form.addRow('',checkbox_row(show,'show_token'))
                 show.toggled.connect(lambda checked:token.setEchoMode(QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password))
                 prompt_path=existing.get('prompt_file') or f'prompts/{key}.txt'
                 path=self.store.safe_path(prompt_path)
-                prompt=QPlainTextEdit(path.read_text(encoding='utf-8-sig') if path.exists() else '[정체성]\n이름: '+existing.get('name',key)+'\n\n[성격]\n\n[말투]\n')
-                prompt.setMinimumHeight(240); fields.form.addRow('캐릭터 프롬프트 (직접 편집)',prompt)
+                prompt=ResizableTextEdit(self.store.pending[path].decode('utf-8') if path in self.store.pending else path.read_text(encoding='utf-8-sig') if path.exists() else '[정체성]\n이름: '+existing.get('name',key)+'\n\n[성격]\n\n[말투]\n')
+                prompt.setMinimumHeight(360); fields.form.addRow('캐릭터 프롬프트 (직접 편집)',prompt)
                 guided = Fields(fields.form)
                 for field,(label,hint) in GUIDE_FIELDS.items():
                     widget = guided.add(field,existing.get('prompt_guide',{}).get(field,''),'작성 가이드 · '+label,multiline=True)
@@ -351,11 +445,13 @@ class Window(QMainWindow):
                     if filename:
                         pix=QPixmap(filename)
                         if pix.isNull(): raise ValueError('이미지를 읽을 수 없습니다.')
-                        destination=self.root/'profiles'/f'{key}.png'; destination.parent.mkdir(exist_ok=True)
-                        self.store.backup()
-                        if not pix.save(str(destination),'PNG'): raise ValueError('이미지 저장에 실패했습니다.')
+                        destination=self.root/'profiles'/f'{key}.png'
+                        from PySide6.QtCore import QBuffer, QIODevice
+                        buffer=QBuffer(); buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+                        if not pix.save(buffer,'PNG'): raise ValueError('이미지 저장에 실패했습니다.')
+                        self.store.stage(destination,bytes(buffer.data()))
                         existing['profile_image']=str(destination.relative_to(self.root))
-                        avatar.setPixmap(pix.scaled(110,110,Qt.AspectRatioMode.KeepAspectRatio)); self.dirty=True
+                        avatar.setPixmap(pix.scaled(110,110,Qt.AspectRatioMode.KeepAspectRatio)); self.dirty_forms.add(draft_token); self.mark_dirty()
                 pick.clicked.connect(lambda:self.guard(choose_image))
             def save():
                 values=fields.values(); secret=values.pop('_token',None)
@@ -386,18 +482,30 @@ class Window(QMainWindow):
                         seen.add(ancestor); ancestor=self.store.data['places'].get(ancestor,{}).get('parent')
                     for allowed in values['allowed_characters']:
                         if allowed not in self.store.data['characters']: raise ValueError(f'없는 캐릭터: {allowed}')
-                data=copy.deepcopy(self.store.data[name]); data[key]=dict(existing,**values)
+                data=copy.deepcopy(self.store.data[name])
+                if key not in data: return
+                data[key]={**data[key],**existing,**values}
                 self.store.write_json(name,data); self.ok()
-            self.button(body_layout,'변경 사항 저장',save)
+            self.savers[draft_token]=save
+            self.button(panel_layout,'변경 사항 저장',self.save_all)
             self.track(content)
         def change(key):
-            if not self.discard():
-                selector.blockSignals(True); selector.setCurrentText(selected[0]); selector.blockSignals(False); return
-            self.dirty=False; selected[0]=key; self.guard(lambda:render(key))
+            selected[0]=key; self.guard(lambda:render(key))
+        def sync_items():
+            current=selector.currentText()
+            keys=[k for k in self.store.data[name] if not k.startswith('_')]
+            if [selector.itemText(i) for i in range(selector.count())] != keys:
+                selector.blockSignals(True); selector.clear(); selector.addItems(keys)
+                if current in keys: selector.setCurrentText(current)
+                selector.blockSignals(False)
+                for key in list(panels):
+                    if key not in keys:
+                        panels.pop(key).deleteLater(); self.savers.pop(f'{name}:{key}',None); self.dirty_forms.discard(f'{name}:{key}')
+                render(selector.currentText())
+        page.sync_items=sync_items
         selector.currentTextChanged.connect(change); render(selector.currentText()); return page
 
     def add_item(self,name):
-        if not self.discard(): return
         key,accepted=QInputDialog.getText(self,'추가','캐릭터 내부 키 (영문/숫자/밑줄)' if name=='characters' else '장소 이름')
         key=key.strip()
         if not accepted: return
@@ -407,14 +515,16 @@ class Window(QMainWindow):
         value=copy.deepcopy(CHAR_DEFAULT if name=='characters' else PLACE_DEFAULT)
         if name=='characters': value.update(name=key,token_env='DISCORD_'+key.upper().replace('-','_')+'_TOKEN',prompt_file=f'prompts/{key}.txt')
         else: value['channel_name']=key
-        data=copy.deepcopy(self.store.data[name]); data[key]=value; self.store.write_json(name,data); self.refresh()
+        data=copy.deepcopy(self.store.data[name]); data[key]=value; self.store.write_json(name,data); self.mark_dirty(); self.refresh()
     def delete_item(self,name,key):
         if not key: return
         if not self.confirm(f'{key}을 삭제할까요?\n연결된 초기 관계와 출입 설정도 정리합니다. 대화 기록은 유지됩니다.'): return
-        (self.store.remove_character if name=='characters' else self.store.remove_place)(key); self.refresh()
+        (self.store.remove_character if name=='characters' else self.store.remove_place)(key)
+        self.savers.pop(f'{name}:{key}',None); self.dirty_forms.discard(f'{name}:{key}'); self.mark_dirty(); self.refresh()
 
     def world(self):
         page,layout=self.page('세계관 · 기능','모든 캐릭터에 적용할 규칙과 기능을 설정하세요.')
+        page.setProperty('draft_key','world')
         fields,content=self.scrolled_form(layout); data=copy.deepcopy(self.store.data['settings'])
         fields.add('world_name',data.get('world_name',''),'세계 이름')
         fields.add('world_description',data.get('world_description',''),'세계 소개',multiline=True)
@@ -436,56 +546,71 @@ class Window(QMainWindow):
         channels=Fields(fields.form); channel_data=data.get('channel_setup',{})
         channels.add('create_categories',channel_data.get('create_categories',True),'장소 그룹별 카테고리 생성')
         channels.add('create_status_channel',channel_data.get('create_status_channel',True),'상태 채널 생성')
-        channels.add('category_names',channel_data.get('category_names',{'public':'공용 장소','outdoor':'실외','private':'개인 공간','system':'시스템'}),'카테고리 이름')
+        category_note=QLabel('카테고리 이름은 왼쪽 ‘카테고리’ 탭에서 추가·수정하세요.'); category_note.setWordWrap(True); fields.form.addRow('',category_note)
         runtime=Fields(fields.form)
         for key,(label,default,minimum,maximum) in OPTIONS.items():
             widget=runtime.add(key,data.get('runtime',{}).get(key,default),label); widget.setRange(minimum,maximum)
         def save():
             values=fields.values(); ZoneInfo(values['timezone'])
+            data=copy.deepcopy(self.store.data['settings'])
             data['runtime']=dict(data.get('runtime',{}),**validate_options(runtime.values()))
             data['conversation_modes']=modes.values()
             data.update(values); data['features']=dict(data.get('features',{}),**features.values())
-            data['channel_setup']=dict(channel_data,**channels.values()); self.store.write_json('settings',data); self.ok()
-        self.button(layout,'세계관 · 기능 저장',save); return page
+            channel_values=channels.values()
+            data['channel_setup']=dict(data.get('channel_setup',{}),**channel_values); self.store.write_json('settings',data); self.ok()
+        self.savers['world']=save
+        self.button(layout,'세계관 · 기능 저장',self.save_all).setToolTip('다른 탭의 수정 내용도 함께 저장합니다.'); return page
 
     def relations(self):
         page,layout=self.page('캐릭터 관계','시작 시점의 관계를 설정합니다. 이미 학습된 관계와 기억은 초기화하지 않습니다.')
+        page.setProperty('draft_key','relations')
         keys=[k for k in self.store.data['characters'] if not k.startswith('_')]
         first=QComboBox(); first.addItems(keys); second=QComboBox(); second.addItems(keys)
         if len(keys)>1: second.setCurrentIndex(1)
         row=QHBoxLayout(); row.addWidget(first); row.addWidget(QLabel('↔')); row.addWidget(second); layout.addLayout(row)
-        editor=QPlainTextEdit(); editor.setPlaceholderText('두 캐릭터의 관계와 배경을 적어주세요.'); layout.addWidget(editor,1)
-        current=[None]
+        editor=ResizableTextEdit(height=300); editor.setPlaceholderText('두 캐릭터의 관계와 배경을 적어주세요.'); layout.addWidget(editor,1)
+        current=[None]; drafts={}; loading=[False]
+        first.setProperty('skip_dirty',True); second.setProperty('skip_dirty',True)
+        def remember():
+            if not loading[0] and current[0]: drafts[current[0]]=editor.toPlainText()
+        editor.textChanged.connect(remember)
         def load():
             pair=first.currentText()+'|'+second.currentText(); reverse=second.currentText()+'|'+first.currentText()
-            current[0]=pair if pair in self.store.data['relations'] else reverse if reverse in self.store.data['relations'] else pair
-            editor.setPlainText(self.store.data['relations'].get(current[0],{}).get('context','')); self.dirty=False
-        def change():
-            if self.dirty:
-                # Keep the draft visible; changing pair requires explicit discard.
-                if not self.discard():
-                    if current[0]:
-                        a,b=current[0].split('|'); first.blockSignals(True); second.blockSignals(True); first.setCurrentText(a); second.setCurrentText(b); first.blockSignals(False); second.blockSignals(False)
-                    return
-            load()
-        first.currentTextChanged.connect(change); second.currentTextChanged.connect(change); load()
+            current[0]=pair if pair in drafts or pair in self.store.data['relations'] else reverse if reverse in drafts or reverse in self.store.data['relations'] else pair
+            loading[0]=True
+            editor.blockSignals(True)
+            value=self.store.data['relations'].get(current[0],{})
+            editor.setPlainText(drafts.get(current[0],value.get('context','') if isinstance(value,dict) else str(value)))
+            editor.blockSignals(False); loading[0]=False
+        first.currentTextChanged.connect(load); second.currentTextChanged.connect(load); load()
         def save():
-            if not first.currentText() or first.currentText()==second.currentText(): raise ValueError('서로 다른 두 캐릭터를 선택해주세요.')
-            data=copy.deepcopy(self.store.data['relations']); data[current[0]]=dict(data.get(current[0],{}),context=editor.toPlainText())
+            remember()
+            data=copy.deepcopy(self.store.data['relations'])
+            for pair,text in drafts.items():
+                a,b=pair.split('|')
+                if a==b:
+                    if text.strip(): raise ValueError('서로 다른 두 캐릭터의 관계를 입력해주세요.')
+                    continue
+                if a not in self.store.data['characters'] or b not in self.store.data['characters']: continue
+                old=data.get(pair,{})
+                data[pair]=dict(old if isinstance(old,dict) else {},context=text)
             self.store.write_json('relations',data); self.ok()
         def remove():
             if current[0] in self.store.data['relations'] and self.confirm('초기 관계 설정을 삭제할까요?'):
-                data=copy.deepcopy(self.store.data['relations']); data.pop(current[0]); self.store.write_json('relations',data); load()
-        self.button(layout,'관계 저장',save); self.button(layout,'초기 관계 삭제',remove); return page
+                data=copy.deepcopy(self.store.data['relations']); data.pop(current[0]); drafts.pop(current[0],None)
+                self.store.write_json('relations',data); load(); self.mark_dirty()
+        self.savers['relations']=save
+        self.button(layout,'관계 저장',self.save_all); self.button(layout,'초기 관계 삭제',remove); return page
 
     def connections(self):
         page,layout=self.page('API · Discord 연결','캐릭터별 토큰은 캐릭터 메뉴에서 입력하세요. 빈 값으로 저장하면 해당 연결 값이 제거됩니다.')
+        page.setProperty('draft_key','connections')
         fields,content=self.scrolled_form(layout); secrets=[]
         for key,label in [('OPENAI_API_KEY','OpenAI API 키'),('DISCORD_GUILD_ID','본서버 ID'),('DISCORD_STATUS_TOKEN','상태봇 토큰'),('DISCORD_STATUS_CHANNEL','상태 채널 이름'),('DISCORD_COMMAND_CHANNEL_ID','명령 채널 ID'),('DISCORD_PERSONAL_RP_GUILD_IDS','개인 RP 서버 ID (쉼표 구분)')]:
             secret='TOKEN' in key or 'API_KEY' in key
             widget=fields.add(key,self.store.env.get(key,'') or '',label,secret=secret)
             if secret: secrets.append(widget)
-        show=QCheckBox('키와 토큰 보기'); show.setProperty('skip_dirty',True); layout.addWidget(show)
+        show=QCheckBox('키와 토큰 보기'); show.setProperty('skip_dirty',True); layout.addWidget(checkbox_row(show,'show_token'))
         show.toggled.connect(lambda checked:[widget.setEchoMode(QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password) for widget in secrets])
         def save():
             values=fields.values()
@@ -493,7 +618,8 @@ class Window(QMainWindow):
                 if values[key] and not values[key].isdigit(): raise ValueError('Discord ID는 숫자만 입력해주세요.')
             if any(not v.strip().isdigit() for v in values['DISCORD_PERSONAL_RP_GUILD_IDS'].split(',') if v.strip()): raise ValueError('개인 서버 ID는 숫자를 쉼표로 구분해주세요.')
             self.store.write_env(values); self.ok()
-        self.button(layout,'연결 설정 저장',save); return page
+        self.savers['connections']=save
+        self.button(layout,'연결 설정 저장',self.save_all).setToolTip('다른 탭의 수정 내용도 함께 저장합니다.'); return page
 
     def backups(self):
         page,layout=self.page('백업 · 복원','설정·프롬프트·API 키를 백업합니다. 백업에는 비밀 키가 포함되므로 공유하지 마세요.\n복원은 백업 파일을 덮어씁니다. 백업 이후 추가된 파일과 대화 기록은 유지됩니다.')
@@ -503,20 +629,25 @@ class Window(QMainWindow):
         def backup(): self.store.backup(); self.refresh()
         def restore():
             item=listing.currentItem()
-            if item and self.confirm('선택한 시점의 설정과 프롬프트를 복원할까요? 현재 설정도 먼저 백업합니다.'):
+            if item and self.confirm('선택한 시점의 설정과 프롬프트를 복원할까요? 저장하지 않은 수정 내용도 교체됩니다. 현재 저장된 설정은 먼저 백업합니다.'):
                 if bot_running(self.root): raise ValueError('봇을 종료한 뒤 복원해주세요.')
-                self.store.restore(directory/item.text()); self.refresh()
+                self.store.restore(directory/item.text()); self.store.pending.clear()
+                self.savers.clear(); self.dirty_forms.clear()
+                for index,page in list(self.page_cache.items()):
+                    self.stack.removeWidget(page); page.deleteLater(); self.stack.insertWidget(index,QWidget())
+                self.page_cache.clear(); self.dirty=False; self.refresh()
         self.button(layout,'지금 백업',backup); self.button(layout,'선택 백업 복원',restore); return page
 
     def preferences(self):
         path=self.root/'desktop_settings.json'
-        return json.loads(path.read_text(encoding='utf-8')) if path.exists() else {'check_updates_on_start':True}
+        raw=self.store.pending.get(path)
+        return parse_json(raw.decode('utf-8') if raw is not None else path.read_text(encoding='utf-8'),'업데이트 설정') if raw is not None or path.exists() else {'check_updates_on_start':True}
     def updates(self):
         page,layout=self.page('업데이트',f'현재 버전 v{VERSION} · 새 버전은 GitHub 정식 릴리스에서 확인합니다.\n처음 GUI 버전으로 바꿀 때는 수동 다운로드가 필요합니다. 이후부터 여기서 업데이트할 수 있습니다.')
-        check=QCheckBox('프로그램 시작 시 새 버전 확인'); check.setProperty('skip_dirty',True); check.setChecked(self.preferences().get('check_updates_on_start',True)); layout.addWidget(check)
+        check=QCheckBox('프로그램 시작 시 새 버전 확인'); check.setProperty('skip_dirty',True); check.setChecked(self.preferences().get('check_updates_on_start',True)); layout.addWidget(checkbox_row(check,'check_updates_on_start'))
         def preference():
             data=self.preferences(); data['check_updates_on_start']=check.isChecked()
-            atomic_write(self.root/'desktop_settings.json',json.dumps(data,ensure_ascii=False,indent=2)); self.dirty=False
+            self.store.stage(self.root/'desktop_settings.json',json.dumps(data,ensure_ascii=False,indent=2)); self.mark_dirty()
         check.toggled.connect(lambda:self.guard(preference))
         self.update_text=QPlainTextEdit(); self.update_text.setReadOnly(True)
         self.update_text.setPlainText(self.release['version']+'\n\n'+self.release['notes'] if self.release else '업데이트 확인 버튼을 눌러주세요.')
@@ -548,6 +679,7 @@ class Window(QMainWindow):
         if not self.release: return
         if bot_running(self.root): raise ValueError('실행 중인 봇을 콘솔에서 종료한 뒤 업데이트해주세요.')
         if not self.confirm(f"{self.release['version']}으로 업데이트할까요?\n설정 프로그램이 종료된 후 다시 열립니다. 설정·프롬프트·기억·대화 기록은 유지됩니다."): return
+        if self.dirty: self.save_all()
         self.store.backup(); self.statusBar().showMessage('업데이트 다운로드 및 검증 중…')
         self.background(lambda:stage_release(self.release,self.root),self.install_ready)
     def install_ready(self,stage):
@@ -563,7 +695,18 @@ class Window(QMainWindow):
     def closeEvent(self,event):
         if self.job and self.job.isRunning():
             self.error('다운로드 또는 확인이 끝난 뒤 창을 닫아주세요.'); event.ignore(); return
-        if not self.discard(): event.ignore(); return
+        if self.dirty:
+            dialog=QMessageBox(self); dialog.setWindowTitle('설정 저장')
+            dialog.setText('변경한 내용을 저장할까요?')
+            save=dialog.addButton('저장 후 종료',QMessageBox.ButtonRole.AcceptRole)
+            discard=dialog.addButton('저장하지 않고 종료',QMessageBox.ButtonRole.DestructiveRole)
+            dialog.addButton('취소',QMessageBox.ButtonRole.RejectRole)
+            dialog.setDefaultButton(save); dialog.exec()
+            if dialog.clickedButton()==save:
+                try: self.save_all()
+                except Exception as error:
+                    self.error(error); event.ignore(); return
+            elif dialog.clickedButton()!=discard: event.ignore(); return
         if bot_running(self.root):
             dialog = QMessageBox(self)
             dialog.setWindowTitle('RPBot 종료')
