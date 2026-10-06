@@ -1,4 +1,5 @@
 """Read-only desktop dashboard, independent from the Discord event loop."""
+from contextlib import closing
 import json
 import sqlite3
 import time
@@ -120,7 +121,7 @@ class MonitorPanel(QWidget):
         db = self.data_root / 'discord_memory.db'
         if db.exists() and key:
             try:
-                with sqlite3.connect(db.as_uri() + '?mode=ro', uri=True, timeout=.1) as conn:
+                with closing(sqlite3.connect(db.as_uri() + '?mode=ro', uri=True, timeout=.1)) as conn:
                     rows = conn.execute('SELECT id,content,subject FROM memories WHERE character=? ORDER BY id DESC LIMIT 100', (key,)).fetchall()
                     memories = [f'[{row[0]}][{row[2]}] {row[1]}' for row in rows]
                     current_id=self.memory_choices.currentData()
@@ -142,6 +143,6 @@ class MonitorPanel(QWidget):
         if identifier is None or not key: return
         if QMessageBox.question(self,'기억 삭제','선택한 기억을 삭제할까요? 되돌릴 수 없습니다.') != QMessageBox.StandardButton.Yes: return
         db=self.data_root/'discord_memory.db'
-        with sqlite3.connect(db.as_uri()+'?mode=rw',uri=True,timeout=2) as conn:
+        with closing(sqlite3.connect(db.as_uri()+'?mode=rw',uri=True,timeout=2)) as conn, conn:
             conn.execute('DELETE FROM memories WHERE id=? AND character=?',(identifier,key))
         self.refresh()

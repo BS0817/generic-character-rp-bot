@@ -1,3 +1,4 @@
+from contextlib import closing
 """Headless Qt smoke test: render every page and edit a real setting."""
 import os
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
@@ -112,7 +113,7 @@ class GuiTests(unittest.TestCase):
             monitor.characters[key]=dict(connected=True,place='테스트 장소',activity='독서',hunger=10+60*i,fatigue=10,sleeping=bool(i))
         monitor.flush()
         db=self.root/'discord_memory.db'
-        with sqlite3.connect(db) as conn:
+        with closing(sqlite3.connect(db)) as conn, conn:
             conn.execute('CREATE TABLE memories(id INTEGER PRIMARY KEY,character TEXT,content TEXT,subject TEXT)')
             for i,key in enumerate(keys):conn.execute('INSERT INTO memories VALUES(?,?,?,?)',(i+1,key,'기억'+str(i),'user:123'))
         self.window.nav.setCurrentRow(9);panel=self.window.stack.currentWidget()
@@ -122,7 +123,7 @@ class GuiTests(unittest.TestCase):
         panel.characters.setCurrentRow(0);panel.refresh()
         target=panel.selected_key
         with patch.object(QMessageBox,'question',return_value=QMessageBox.StandardButton.Yes):panel.delete_memory()
-        with sqlite3.connect(db) as conn:
+        with closing(sqlite3.connect(db)) as conn, conn:
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM memories WHERE character=?',(target,)).fetchone()[0],0)
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM memories').fetchone()[0],len(keys)-1)
         panel.search.setText('없는 장소');self.assertEqual(panel.characters.count(),0)
