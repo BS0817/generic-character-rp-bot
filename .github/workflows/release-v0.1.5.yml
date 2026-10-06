@@ -1,0 +1,75 @@
+name: Publish RPBot v0.1.5
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/release-v0.1.5.yml"]
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download tested Windows package
+        uses: actions/download-artifact@v4
+        with:
+          name: Generic-Character-RP-Bot-Windows
+          run-id: 37505495929
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: release-assets
+      - name: Verify package checksum
+        shell: powershell
+        run: |
+          $zip = "release-assets/Generic-Character-RP-Bot-Windows.zip"
+          $expected = (Get-Content "$zip.sha256").Split(" ")[0].ToLower()
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $expected) { throw "Package checksum mismatch" }
+      - name: Publish approved v0.1.5 release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/Generic-Character-RP-Bot-Windows.zip
+            release-assets/Generic-Character-RP-Bot-Windows.zip.sha256
+          tag_name: v0.1.5
+          target_commitish: 2f0c904ab17379716127ddfc719031628887c334
+          name: "RPBot v0.1.5 — 공통 프롬프트 · 선택형 생활 시뮬레이션"
+          body: |
+            ## 프롬프트와 대화
+            - 세계 규칙과 분리된 최우선 공통 행동·대화 프롬프트, 편집·기본값 복원
+            - 월드·개인/공동 RP·DM의 현장 RP / 메신저 RP / 직접 설정 방식
+            - 초보자용 캐릭터 프롬프트 작성 가이드·미리보기·직접 편집
+            - 복장 취향: 선호 스타일·색/소재·비선호·싫어함, 캐릭터별 사용 설정
+            - 반복·동의 연쇄·상투적인 시작·일부 고정 관계 위반 검사, 최대 한 번 재생성
+
+            ## PC 관리
+            - 모니터 검색·필터·정렬, 허기·피로·기분·생활 단계
+            - 발언 대기·다음 월드 자율 판단·정지·이동 보류 이유
+            - 명령/생성/검사 결과 표시, 최근 기억 조회·선택 삭제
+
+            ## 선택형 생활 확장
+            - 좌석·동석자·빈자리, 이동·취침·외출 시 해제
+            - 장소별·시간대별 메뉴와 식사 준비→섭취→정리→완료
+            - 낮잠·수면 품질·방해에 따른 회복
+            - 물건 대여·반환 기록, 장소별 단계 활동, 복장 젖음·건조
+            관리 기능 외의 새 기능은 각각 켜고 끌 수 있습니다.
+            복장 취향과 새 생활 기능은 기본 꺼짐입니다. Setup에서 설정 후 켜세요.
+            낮잠은 좌석 기능·좌석 설정·낮잠 허용 장소가 필요합니다.
+
+            ## 업데이트
+            봇을 정지하고 RPBot_Setup.exe의 업데이트 메뉴에서 확인·설치하세요.
+            수동 설치 시 ZIP의 RPBot.exe, RPBot_Setup.exe, RPBot_Updater.exe 세 파일만 교체하세요.
+            기존 config/, prompts/, .env, 데이터베이스는 유지하세요.
+            새 설정 키가 없어도 기본값으로 동작하며 Setup에서 저장할 수 있습니다.
+
+            ## 검증과 범위
+            Windows 실행 파일 세 개 빌드와 테스트 40개 통과.
+            외부 접속 없는 시작·명령 등록·프롬프트 구성 검사 통과.
+            대화 검사는 규칙 기반이며 모든 의미상 위반을 보장하지 않습니다.
+            실제 Discord 장시간 운영은 아직 검증하지 않았습니다.
+            DDL 통계 그래프·다중 서버 독립 월드·Gateway/Worker 분리는 이번 범위에 포함하지 않습니다.
+          make_latest: true
+          draft: false
+          prerelease: false
+
