@@ -24,6 +24,8 @@ PLACES_PATH = CONFIG_DIR / "places.json"
 SETTINGS_PATH = CONFIG_DIR / "settings.json"
 RELATIONS_PATH = CONFIG_DIR / "relations.json"
 
+from rp_policy import FEATURES
+
 FEATURE_QUESTIONS = [
     ("world_simulation", "본서버 월드 시뮬레이션", True),
     ("place_movement", "캐릭터 장소 자동 이동", True),
@@ -42,6 +44,7 @@ FEATURE_QUESTIONS = [
     ("status_dashboard", "상태봇 대시보드", True),
     ("presence", "Discord 상태메시지", True),
 ]
+FEATURE_QUESTIONS.extend(FEATURES)
 
 
 def ask(prompt, default=None, allow_empty=False):

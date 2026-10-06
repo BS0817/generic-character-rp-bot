@@ -1,5 +1,6 @@
 """Exercise bot helpers without starting Discord or making paid API calls."""
 import ast
+import contextvars
 import asyncio
 import sqlite3
 import sys
@@ -12,6 +13,7 @@ from unittest.mock import AsyncMock, Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from desktop_monitor import Monitor, read_snapshot
+from rp_policy import policy_prompt
 
 SOURCE = ast.parse((Path(__file__).resolve().parents[1] / 'src/bot.py').read_text(encoding='utf-8'))
 
@@ -34,7 +36,7 @@ class ExtensionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); (root/'a.txt').write_text('性格', encoding='utf-8')
             config = dict(prompt_file='a.txt', default_outfit='평상복', current_outfit='예복')
-            ns = functions({'load_character_prompt'}, dict(Path=Path, APP_ROOT=root, CHARACTERS={'a':config}))
+            ns = functions({'load_character_prompt'}, dict(Path=Path, APP_ROOT=root, CHARACTERS={'a':config}, CUSTOM_SETTINGS={}, policy_prompt=policy_prompt, _generation_scope=contextvars.ContextVar('scope',default='world'), _generation_feedback=contextvars.ContextVar('feedback',default=''), CURRENT_LOG_SCOPE=contextvars.ContextVar('log',default='world')))
             self.assertIn('현재 참고할 복장: 예복', ns['load_character_prompt']('a'))
             config['current_outfit'] = ''
             self.assertIn('현재 참고할 복장: 평상복', ns['load_character_prompt']('a'))

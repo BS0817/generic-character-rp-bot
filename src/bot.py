@@ -13,6 +13,10 @@ import contextvars
 from pathlib import Path
 
 from collections import defaultdict, deque
+from rp_policy import FEATURES, policy_prompt, dialogue_reason, relationship_reason, completed_transfer
+from life_engine import LifeEngine
+import functools
+import inspect
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -852,6 +856,7 @@ def _normalize_character_config(raw_characters):
             "private_room": private_room,
             "default_outfit": str(raw.get("default_outfit") or "").strip(),
             "current_outfit": str(raw.get("current_outfit") or "").strip(),
+            **{k: raw.get(k, False if k == "outfit_preferences_enabled" else "") for k in ("outfit_preferences_enabled", "preferred_style", "preferred_colors", "disliked_outfits", "hated_outfits", "outfit_notes")},
             "sleep_start_range": _normalize_time_range(
                 raw.get("sleep_start_range"),
                 ((1, 0), (3, 0)),
@@ -1059,6 +1064,9 @@ def defer_character_movement(character, min_minutes=5, max_minutes=15, reason="�
 def get_movement_busy_reason(character, client=None):
     """이동 시간이 와도 지금 떠나면 부자연스러운 상황인지 확인한다."""
     state = character_state[character]
+    if "_life" in globals():
+        reason = _life.busy(character, CUSTOM_SETTINGS)
+        if reason: return reason
     if state.get("sleeping"):
         return "수면 중"
     if state.get("away"):
@@ -2440,6 +2448,7 @@ def _load_generic_world_config():
                 raw.get("description")
                 or f"{place}."
             ),
+            **{k: raw.get(k, {} if k in ("seats", "menus") else False if k in ("nap_allowed", "outdoor") else []) for k in ("seats", "menus", "nap_allowed", "outdoor", "activities")},
             "objects": [
                 str(item)
                 for item in raw.get("objects", [])
@@ -2521,27 +2530,15 @@ def _load_generic_world_config():
         custom_lines.append(f"세계 설명: {world_description}")
 
     if common_rules:
-        custom_lines.append("추가 공통 규칙:")
+        custom_lines.append("세계 규칙:")
         custom_lines.extend(
             f"- {str(rule)}"
             for rule in common_rules
             if str(rule).strip()
         )
 
-    generic_common = re.sub(
-        r"^- 배경은 초자연 현상이 일상에 섞여 있는 1940년대 대체역사 뉴욕이다\.\n",
-        "",
-        COMMON_ROLEPLAY_RULES,
-        count=1,
-        flags=re.MULTILINE,
-    )
-
-    COMMON_ROLEPLAY_RULES = (
-        generic_common.rstrip()
-        + "\n"
-        + "\n".join(custom_lines)
-        + "\n"
-    )
+    # World rules are independent from the optional common policy and interface mode.
+    COMMON_ROLEPLAY_RULES = "\n".join(custom_lines) + "\n"
 
 
 _load_generic_world_config()
@@ -2570,6 +2567,8 @@ FEATURE_DEFAULTS = {
     "status_dashboard": True,
     "presence": True,
 }
+
+FEATURE_DEFAULTS.update({key: default for key, _, default in FEATURES})
 
 def feature_enabled(name):
     features = (
@@ -2751,7 +2750,8 @@ def load_character_prompt(character):
     # 캐릭터 파일에는 앞으로 해당 캐릭터만의 정체, 성격, 말투, 관계,
     # 일상, 외형, 인게임 대사 참고 등을 중심으로 남기면 된다.
     outfit = config.get("current_outfit") or config.get("default_outfit")
-    return character_prompt + (
+    scope = _generation_scope.get() or CURRENT_LOG_SCOPE.get() or "world"
+    return policy_prompt(CUSTOM_SETTINGS, config, scope) + "\n\n" + _generation_feedback.get() + "\n" + character_prompt + (
         "\n\n[복장]\n현재 참고할 복장: " + (outfit or "미지정")
         + "\n현재 복장이 지정되면 기본 복장보다 우선한다. 복장은 장면에 필요할 때만 묘사한다. "
         "지정되지 않은 옷·신발·장신구를 임의로 추가하지 않는다."
@@ -2855,7 +2855,8 @@ def update_character_needs(character):
     state["last_need_update"] = now
 
     if state["sleeping"]:
-        state["fatigue"] = max(0, state["fatigue"] - 14 * elapsed_h)
+        if not ("_life" in globals() and _life.record(character).get("nap")):
+            state["fatigue"] = max(0, state["fatigue"] - 14 * elapsed_h)
         state["hunger"] = min(100, state["hunger"] + 4 * elapsed_h)
     else:
         state["fatigue"] = min(100, state["fatigue"] + 5 * elapsed_h)
@@ -2905,7 +2906,7 @@ def apply_place_need_effects(character):
     place = current_place.get(character)
     activity = (current_activity.get(character) or "").lower()
 
-    if place in ("식당", "카페") and any(k in activity for k in ["먹", "식사", "마시", "차 ", "커피", "음료"]):
+    if not feature_enabled("meal_stages") and place in ("식당", "카페") and any(k in activity for k in ["먹", "식사", "마시", "차 ", "커피", "음료"]):
         state["hunger"] = max(0, state["hunger"] - 2.4 * elapsed_min)
         state["mood_reason"] = "먹거나 마시며 쉬는 중"
 
@@ -3269,6 +3270,8 @@ def maybe_update_inventory_from_text(character, text, place, target_character=No
     """행동지문/대사에서 명확히 드러난 간단한 소지품 이동만 반영한다."""
     if not text or not place:
         return
+    if feature_enabled("item_loans") and target_character is not None and not completed_transfer(text):
+        return
     low = text.lower()
     owned = list(character_inventory.get(character, set()))
 
@@ -3278,6 +3281,8 @@ def maybe_update_inventory_from_text(character, text, place, target_character=No
             if item in text:
                 character_inventory[character].discard(item)
                 character_inventory[target_character].add(item)
+                if feature_enabled("item_loans"):
+                    _life.transfer(item, character, target_character, borrowed=any(w in low for w in ("빌려", "lend")))
                 log_message("General", "소지품 전달:", CHARACTERS[character]["name"], item, "→", CHARACTERS[target_character]["name"])
                 return
 
@@ -3992,6 +3997,7 @@ def get_character_context(character):
     inventory = ", ".join(sorted(character_inventory.get(character, set()))) or "특별히 들고 있는 소지품 없음"
     habits = ", ".join(CHARACTERS[character].get("habits", [])) or "특별히 정해진 습관 없음"
     return (
+        f"{_life.context(character, CUSTOM_SETTINGS) if '_life' in globals() else ''}\n"
         f"현재 생활 상태: {get_needs_text(character)}\n"
         f"기분의 이유: {state.get('mood_reason', '특별한 이유 없음')}\n"
         f"수면 여부: {'자는 중' if state['sleeping'] else '깨어 있음'}\n"
@@ -5650,9 +5656,9 @@ def generate_character_reply(
             '장소는 관련 있을 때만 자연스럽게 참고한다.'
         )
     else:
-        conversation_scene = f'Discord에서 {config["name"]}가 대화 중이다.'
+        conversation_scene = f'{config["name"]}가 현재 설정된 대화 방식으로 대화 중이다.'
         place_rule = (
-            '장소는 현재 Discord 채널을 의미한다. '
+            '장소와 대화 방식은 설정된 장면 정보를 따른다. '
             '장소와 관련된 질문이나 상황이라면 자연스럽게 참고한다. '
             '관련 없는 대화에서는 억지로 장소를 언급하지 않는다.'
         )
@@ -6616,9 +6622,10 @@ def choose_activity(
     place=None
 ):
     config = CHARACTERS[character]
-    prompt = load_character_prompt(
-        character
-    )
+    if '_life' in globals():
+        stage = _life.busy(character, CUSTOM_SETTINGS)
+        if stage: return current_activity.get(character, stage)
+    prompt = load_character_prompt(character)
 
     period = get_time_period()
 
@@ -7263,6 +7270,7 @@ async def autonomous_message_loop(
             '분',
         )
 
+        _monitor.characters.setdefault(character,{})['next_check'] = now_kst().timestamp()+wait_seconds
         await asyncio.sleep(
             wait_seconds
         )
@@ -7445,6 +7453,7 @@ async def autonomous_message_loop(
                     f"<@{other_user_id}> "
                     f"{starter}"
                 )
+                if not starter: continue
 
                 log_message(
                     config["name"],
@@ -7462,7 +7471,7 @@ async def autonomous_message_loop(
                     )
                 )
 
-            if message_text is None:
+            if not message_text:
                 log_message(
                     config["name"],
                     '자율 발언: NO_POST',
@@ -7665,6 +7674,12 @@ def choose_place(
     character
 ):
     period = get_time_period()
+    if feature_enabled('meal_stages') and character_state[character].get('hunger',0)>=55:
+        foods=[p for p in PLACE_CHANNELS if any(PLACE_INFO.get(p,{}).get('menus',{}).values()) and can_enter_place(character,p)]
+        if foods:
+            selected=random.choice(foods)
+            current_place[character]=selected
+            return selected
 
     candidates = []
     weights = []
@@ -8179,6 +8194,10 @@ def choose_weighted_destination(
     )
 
     period = get_time_period()
+    if feature_enabled('meal_stages') and character_state[character].get('hunger',0)>=55:
+        foods=[p for p in PLACE_CHANNELS if p!=current and any(PLACE_INFO.get(p,{}).get('menus',{}).values()) and can_enter_place(character,p)]
+        if foods: return random.choice(foods)
+
 
     candidates = []
     weights = []
@@ -8321,7 +8340,7 @@ async def place_movement_loop(
 
             current_place[character] = destination
 
-            if destination in ("식당", "카페"):
+            if not feature_enabled("meal_stages") and destination in ("식당", "카페"):
                 character_state[character]["hunger"] = max(0, character_state[character]["hunger"] - 35)
             if destination in ("거실", CHARACTERS[character].get("private_room")):
                 character_state[character]["fatigue"] = max(0, character_state[character]["fatigue"] - 10)
@@ -11665,6 +11684,8 @@ def create_client(character):
                     external_rp=personal_rp_mode,
                 )
 
+                if not reply: return
+
                 increment_bot_chain(
                     channel_id
                 )
@@ -11897,6 +11918,12 @@ def create_client(character):
                     e,
                 )
 
+        if not personal_rp_mode and not is_dm and _life.record(character).get('nap'):
+            character_state[character]['sleeping']=False
+            place=current_place.get(character)
+            current_activity[character]=_life.tick(character,place,PLACE_INFO.get(place,{}),character_state[character],current_activity.get(character,''),CUSTOM_SETTINGS,now_kst().timestamp(),now_kst().hour,busy=True)
+            _life.save()
+
         # 자는 동안 사용자가 직접 불렀을 때,
         # 10분 안에 이어지는 대화는 같은 "깨움 세션"으로 취급한다.
         if (
@@ -12098,6 +12125,8 @@ def create_client(character):
                 )
             )
 
+            if _life.busy(character, CUSTOM_SETTINGS): movement_allowed = False
+
             guild_relation_context = None
             if not is_dm:
                 guild_relation_context = get_guild_user_relation_context(
@@ -12135,7 +12164,11 @@ def create_client(character):
                 fixed_relation_override=guild_relation_context,
                 external_rp=personal_rp_mode,
             )
-            
+            if not reply:
+                _monitor.request(character, message.id, '발언 보류', channel_id, '대화 검사에서 보류됨')
+                _monitor.requests.pop(f'{character}:{message.id}', None)
+                return
+
             if (
                     destination is not None
                     and destination in PRIVATE_ROOMS
@@ -12325,6 +12358,7 @@ def create_client(character):
                 e,
             )
 
+    _monitor_commands(character_tree, character)
     return client
 
 # -----------------------------
@@ -12357,6 +12391,9 @@ async def set_sleeping_state(character, sleeping):
         return
 
     state["sleeping"] = sleeping
+    if sleeping and '_life' in globals():
+        r = _life.record(character)
+        for field in ('nap', 'meal', 'task', 'seat'): r.pop(field, None)
     config = CHARACTERS[character]
 
     if sleeping:
@@ -12384,6 +12421,7 @@ async def set_sleeping_state(character, sleeping):
         log_message(config["name"], "취침")
     else:
         state["fatigue"] = max(0, state["fatigue"] - 55)
+        _life.wake(character, state, CUSTOM_SETTINGS)
         state["last_wake_at"] = now_kst()
         set_mood(character, "평온", "잠에서 깨어 피로가 회복됨", hours=1)
         if random.random() < 0.20:
@@ -12410,7 +12448,7 @@ async def life_state_loop(character):
 
     # 시작 시 현재 시간에 맞춰 즉시 수면 상태 정렬
     sched = ensure_daily_sleep_schedule(character)
-    initial_sleeping = is_sleep_time(character)
+    initial_sleeping = feature_enabled("sleep_system") and is_sleep_time(character)
     if not initial_sleeping and character_state[character].get("last_wake_at") is None:
         now = now_kst()
         wake_today = datetime.combine(
@@ -12438,10 +12476,34 @@ async def life_state_loop(character):
             ensure_daily_sleep_schedule(character)
             update_character_needs(character)
             apply_place_need_effects(character)
+            state = character_state[character]
+            place = current_place.get(character)
+            r = _life.record(character)
+            state['temperature'] = get_world_temperature()
+            state['outfit_set'] = bool(CHARACTERS[character].get('current_outfit') or CHARACTERS[character].get('default_outfit'))
+            stage_channel=find_place_channel(client,place)
+            in_stage_event=bool(stage_channel and dynamic_event_channels.get(stage_channel.id,False))
+            # Nap recovery is handled only once by LifeEngine, not by night-sleep recovery.
+            current_activity[character] = _life.tick(
+                character, place, PLACE_INFO.get(place, {}), state,
+                current_activity.get(character, ''), CUSTOM_SETTINGS, now_kst().timestamp(),
+                now_kst().hour, str(ensure_daily_weather()),
+                busy=in_stage_event or bool(movement_defer_until.get(character) and datetime.now() < movement_defer_until[character]) or bool(_life_appointment_due(character)),
+                scheduled_sleep=feature_enabled("sleep_system") and is_sleep_time(character))
+            if r.get('finished_meal_at') and now_kst().timestamp()-r['finished_meal_at']>=300 and not get_movement_busy_reason(character, client):
+                if feature_enabled('place_movement'):
+                    destination=choose_weighted_destination(character)
+                    if destination:
+                        current_place[character]=destination
+                        r.pop('seat',None); r.pop('finished_meal_at',None)
+                        current_activity[character]=choose_activity(character,destination)
+                        log_message(CHARACTERS[character]['name'],'식사 후 이동:',place,'→',destination)
+                else: r.pop('finished_meal_at',None)
+            _life.save()
             cleanup_appointments()
             cleanup_room_invitations()
             await maybe_deliver_unread_note(character)
-            should_sleep = is_sleep_time(character)
+            should_sleep = feature_enabled("sleep_system") and is_sleep_time(character)
 
             # 진행 중인 다이나믹 이벤트가 있으면 장소 이동을 끝날 때까지 미룬다.
             current_channel = find_place_channel(client, current_place.get(character))
@@ -12449,7 +12511,7 @@ async def life_state_loop(character):
                 current_channel is not None
                 and dynamic_event_channels.get(current_channel.id, False)
             )
-            if not in_event:
+            if not in_event and not _life.record(character).get("nap"):
                 await set_sleeping_state(character, should_sleep)
         except Exception as e:
             log_message(CHARACTERS[character]["name"], "생활 상태 오류:", type(e).__name__, "-", e)
@@ -12536,6 +12598,84 @@ async def away_loop(character):
             reason="외출 복귀 상태 반영",
         )
         log_message(CHARACTERS[character]["name"], "외출 종료 |", status_text)
+
+
+
+_generation_scope = contextvars.ContextVar('generation_scope', default='')
+_generation_feedback = contextvars.ContextVar('generation_feedback', default='')
+_life = LifeEngine(DATA_DIR, lambda kind, key, text: _monitor.event(kind, key, text))
+for _loan in _life.loans.values():
+    if _loan['owner'] in character_inventory and _loan['borrower'] in character_inventory:
+        character_inventory[_loan['owner']].discard(_loan['item'])
+        character_inventory[_loan['borrower']].add(_loan['item'])
+
+def _life_appointment_due(character):
+    now = datetime.now()
+    return any(x['character'] == character and not x.get('completed') and
+               abs((x['due_at']-now).total_seconds()) < 1800 for x in pending_appointments)
+
+
+
+def _monitor_commands(tree, label):
+    for command in tree.walk_commands():
+        if not isinstance(command, app_commands.Command): continue
+        original = command.callback
+        @functools.wraps(original)
+        async def callback(*args, _original=original, _name=command.name, **kwargs):
+            interaction = next((x for x in args if isinstance(x, discord.Interaction)), kwargs.get('interaction'))
+            identifier = f"command:{interaction.id}" if interaction else f"command:{_name}"
+            channel = str(getattr(interaction,'channel_id',''))
+            _monitor.request(label, identifier, '명령 실행 중', channel, '/'+_name)
+            try:
+                result = await _original(*args, **kwargs)
+                _monitor.request(label, identifier, '전송 완료', channel, '/'+_name+' · 처리 종료 (권한 안내 포함)')
+                return result
+            except Exception as error:
+                _monitor.request(label, identifier, '오류', channel, '/'+_name+' · '+str(error))
+                raise
+        command._callback = callback
+
+def _checked_generation(fn):
+    signature = inspect.signature(fn)
+    @functools.wraps(fn)
+    def checked(*args, **kwargs):
+        bound = signature.bind(*args, **kwargs); bound.apply_defaults()
+        data = bound.arguments; character = data['character']
+        scope = ('dm' if CURRENT_LOG_SCOPE.get() == 'dm' else 'rp' if data.get('external_rp') or 'personal_rp' in fn.__name__ else CURRENT_LOG_SCOPE.get() or 'world')
+        scope_token = _generation_scope.set(scope)
+        feedback_token = None
+        try:
+            history = data.get('history') or data.get('recent_context') or [x[1] if isinstance(x,tuple) else str(x) for x in recent_autonomous_messages.get(_autonomous_history_key(character, scope, CURRENT_LOG_GUILD_ID.get()), [])]
+            if isinstance(history, str): history = history.splitlines()
+            relation = str(data.get('fixed_relation_override') or '')
+            if not relation and data.get('user_subject'):
+                relation = get_user_relation_context(character, data.get('relation_subject') or data['user_subject'])
+            other = data.get('other_character') or data.get('target_character')
+            if other:
+                relation += get_character_relationship_goal(character, other)
+            result = None
+            for attempt in range(2):
+                _monitor.event('생성', character, fn.__name__+' · 생성 중')
+                result = fn(*args, **kwargs)
+                _monitor.event('생성', character, fn.__name__+' · 생성 완료')
+                text = result[0] if isinstance(result, tuple) else result
+                requested_repeat = any(w in str(data.get('message_text','')) for w in ('다시 말해','반복해','한 번 더 알려','repeat that'))
+                reason = dialogue_reason(text or '', history) if feature_enabled('dialogue_guard') and not requested_repeat else ''
+                if not reason and feature_enabled('relationship_guard'):
+                    reason = relationship_reason(text or '', relation)
+                if not reason: return result
+                _monitor.event('대화 검사', character, f'{reason} · '+('재생성' if attempt == 0 else '발언 보류'))
+                if attempt == 0:
+                    feedback_token = _generation_feedback.set('[이번 초안 수정 지시]\n'+reason+' 때문에 이전 초안은 사용하지 않는다. 새로운 내용으로 답한다. 관계와 현재 상태를 유지한다.')
+            return ('', None) if isinstance(result, tuple) else ''
+        finally:
+            if feedback_token is not None: _generation_feedback.reset(feedback_token)
+            _generation_scope.reset(scope_token)
+    return checked
+
+for _name in ('generate_character_reply','generate_bot_reply','generate_autonomous_message',
+              'generate_personal_rp_autonomous_message','generate_conversation_starter','generate_dynamic_event_reply'):
+    globals()[_name] = _checked_generation(globals()[_name])
 
 
 # 캐릭터 클라이언트 자동 생성
@@ -12643,7 +12783,12 @@ async def desktop_monitor_loop(main_task):
             state.update(name=config['name'], connected=bool(client and client.is_ready()),
                          place=current_place.get(key), activity=current_activity.get(key),
                          outfit=config.get('current_outfit') or config.get('default_outfit') or '미지정',
-                         mood=character_state.get(key, {}).get('mood'))
+                         **{k: character_state.get(key, {}).get(k) for k in ('mood','hunger','fatigue','sleeping','away')},
+                         life=_life.context(key, CUSTOM_SETTINGS),
+                         seat=_life.record(key).get('seat'),
+                         cooldown=str(autonomous_character_cooldown_until.get(_autonomous_history_key(key)) or '대기 없음'),
+                         paused=autonomous_global_paused or key in autonomous_paused_characters,
+                         movement_reason=get_movement_busy_reason(key, client))
         _monitor.flush()
         stop_file = DATA_DIR / 'desktop_stop.request'
         if stop_file.exists():
@@ -12818,7 +12963,7 @@ async def main():
                 not GENERIC_CONFIG_ACTIVE
                 or (
                     feature_enabled("world_simulation")
-                    and feature_enabled("sleep_system")
+                    and (feature_enabled("sleep_system") or any(feature_enabled(k) for k in ("seating", "meal_stages", "naps", "activity_stages", "outfit_condition")))
                 )
             ):
                 background_tasks.append(
@@ -12949,6 +13094,8 @@ async def main():
         _monitor.flush()
 
 
+
+_monitor_commands(status_tree, "관리자")
 init_db()
 ensure_personal_rp_settings_table()
 ensure_offline_mention_tables()

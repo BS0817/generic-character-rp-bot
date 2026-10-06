@@ -1,3 +1,4 @@
+from contextlib import closing
 """Headless Qt smoke test: render every page and edit a real setting."""
 import os
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
@@ -42,7 +43,8 @@ class GuiTests(unittest.TestCase):
         saved=json.loads((self.root/'config/settings.json').read_text(encoding='utf-8'))
         self.assertEqual(saved['world_name'],'Edited World')
         self.assertEqual(saved['runtime']['MAX_BOT_CHAIN'],8)
-        self.assertEqual(len([k for k in saved['features'] if not k.startswith('_')]),16)
+        from setup_wizard import FEATURE_QUESTIONS
+        self.assertEqual(len([k for k in saved['features'] if not k.startswith('_')]),len(FEATURE_QUESTIONS))
         self.assertTrue((self.root/'backup_setup').exists())
     def test_api_key_roundtrip_masked(self):
         self.window.nav.setCurrentRow(5)
@@ -99,3 +101,42 @@ class GuiTests(unittest.TestCase):
             next(b for b in page.findChildren(QPushButton) if b.text()=='삭제').click()
             self.assertTrue(error.called)
         self.assertIn('hotel', self.window.store.data['settings']['channel_setup']['category_names'])
+
+    def test_monitor_filter_sort_and_scoped_memory_delete(self):
+        import sqlite3
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        from desktop_monitor import Monitor
+        keys=[k for k in self.window.store.data['characters'] if not k.startswith('_')]
+        monitor=Monitor(self.root)
+        for i,key in enumerate(keys):
+            monitor.characters[key]=dict(connected=True,place='테스트 장소',activity='독서',hunger=10+60*i,fatigue=10,sleeping=bool(i))
+        monitor.flush()
+        db=self.root/'discord_memory.db'
+        with closing(sqlite3.connect(db)) as conn, conn:
+            conn.execute('CREATE TABLE memories(id INTEGER PRIMARY KEY,character TEXT,content TEXT,subject TEXT)')
+            for i,key in enumerate(keys):conn.execute('INSERT INTO memories VALUES(?,?,?,?)',(i+1,key,'기억'+str(i),'user:123'))
+        self.window.nav.setCurrentRow(9);panel=self.window.stack.currentWidget()
+        panel.filter.setCurrentText('수면');self.assertEqual(panel.characters.count(),len(keys)-1)
+        panel.filter.setCurrentText('전체');panel.sort.setCurrentText('허기 높은 순')
+        self.assertEqual(panel.characters.item(0).data(256),keys[-1])
+        panel.characters.setCurrentRow(0);panel.refresh()
+        target=panel.selected_key
+        with patch.object(QMessageBox,'question',return_value=QMessageBox.StandardButton.Yes):panel.delete_memory()
+        with closing(sqlite3.connect(db)) as conn, conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM memories WHERE character=?',(target,)).fetchone()[0],0)
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM memories').fetchone()[0],len(keys)-1)
+        panel.search.setText('없는 장소');self.assertEqual(panel.characters.count(),0)
+
+    def test_character_guide_and_outfit_fields_roundtrip(self):
+        from PySide6.QtWidgets import QPlainTextEdit
+        self.window.nav.setCurrentRow(1);page=self.window.stack.currentWidget()
+        self.window.error=lambda error: (_ for _ in ()).throw(AssertionError(str(error)))
+        key=next(k for k in self.window.store.data['characters'] if not k.startswith('_'))
+        edits=page.findChildren(QPlainTextEdit)
+        next(edit for edit in edits if edit.placeholderText().startswith('존댓말/반말')).setPlainText('반말, 짧은 문장')
+        next(b for b in page.findChildren(QPushButton) if b.text()=='변경 사항 저장').click()
+        key=next(k for k in self.window.store.data['characters'] if not k.startswith('_'))
+        saved=json.loads((self.root/'config/characters.json').read_text(encoding='utf-8'))
+        self.assertEqual(saved[key]['prompt_guide']['speech'],'반말, 짧은 문장')
+        self.assertIn('outfit_preferences_enabled',saved[key])
