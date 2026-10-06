@@ -22,40 +22,313 @@
     "_설명": "사람들이 대화하기 좋은 공용 장소 예시",
     "channel_name": "카페",
     "description": "사람들이 앉아 음료를 마시고 대화할 수 있는 조용한 카페.",
-    "objects": ["테이블", "의자", "컵", "메뉴판"],
+    "objects": [
+      "테이블",
+      "의자",
+      "컵",
+      "메뉴판",
+      "설탕 통"
+    ],
     "group": "public",
     "parent": null,
     "allowed_characters": [],
-    "time_multipliers": {"morning": 1.3, "day": 1.2, "evening": 1.0, "night": 0.6, "late_night": 0.2}
+    "time_multipliers": {
+      "morning": 1.3,
+      "day": 1.2,
+      "evening": 1.0,
+      "night": 0.6,
+      "late_night": 0.2
+    },
+    "seats": {
+      "테이블 1": 4,
+      "테이블 2": 2,
+      "테이블 3": 3
+    },
+    "menus": {
+      "전체": [
+        "샌드위치와 홍차",
+        "크루아상과 카페라테",
+        "치즈케이크와 커피",
+        "스콘과 밀크티",
+        "쿠키와 핫초코"
+      ],
+      "아침": [
+        "토스트와 커피",
+        "베이글과 카페라테",
+        "달걀 샌드위치와 홍차",
+        "요거트와 과일"
+      ],
+      "점심": [
+        "치킨 샌드위치와 레모네이드",
+        "파니니와 아이스티",
+        "수프와 바게트",
+        "샐러드와 과일 주스"
+      ],
+      "저녁": [
+        "따뜻한 샌드위치와 차",
+        "키슈와 홍차",
+        "수프와 토스트"
+      ],
+      "야식": [
+        "스콘과 따뜻한 우유",
+        "쿠키와 허브티",
+        "토스트와 핫초코"
+      ]
+    },
+    "nap_allowed": false,
+    "outdoor": false,
+    "activities": [
+      "메뉴 살펴보기",
+      "음료 마시기",
+      "수첩 정리하기",
+      "창밖 바라보기"
+    ]
   },
   "거실": {
     "_설명": "휴식과 잡담을 위한 공용 공간 예시",
     "channel_name": "거실",
     "description": "여럿이 쉬거나 가볍게 대화할 수 있는 공용 거실.",
-    "objects": ["소파", "탁자", "램프", "창문"],
+    "objects": [
+      "소파",
+      "탁자",
+      "램프",
+      "창문"
+    ],
     "group": "public",
     "parent": null,
     "allowed_characters": [],
-    "time_multipliers": {"morning": 1.0, "day": 1.0, "evening": 1.3, "night": 1.4, "late_night": 0.8}
+    "time_multipliers": {
+      "morning": 1.0,
+      "day": 1.0,
+      "evening": 1.3,
+      "night": 1.4,
+      "late_night": 0.8
+    },
+    "seats": {
+      "3인 소파": 3,
+      "안락의자": 1
+    },
+    "menus": {
+      "전체": []
+    },
+    "nap_allowed": true,
+    "outdoor": false,
+    "activities": [
+      "소파에서 쉬기",
+      "책 읽기",
+      "가벼운 대화 나누기",
+      "탁자 주변 정리하기"
+    ]
   },
   "거리": {
     "_설명": "실외 장소 예시",
     "channel_name": "거리",
-    "description": "하루 동안 사람들이 오가는 평범한 거리.",
-    "objects": ["가로등", "벤치", "상점 간판"],
+    "description": "여러 사람들이 지나다니는 거리.",
+    "objects": [
+      "가로등",
+      "벤치",
+      "상점 간판"
+    ],
     "group": "outdoor",
     "parent": null,
     "allowed_characters": [],
-    "time_multipliers": {"morning": 0.8, "day": 1.2, "evening": 1.0, "night": 0.5, "late_night": 0.1}
+    "time_multipliers": {
+      "morning": 0.8,
+      "day": 1.2,
+      "evening": 1.0,
+      "night": 0.5,
+      "late_night": 0.1
+    },
+    "seats": {
+      "벤치": 3
+    },
+    "menus": {
+      "전체": []
+    },
+    "nap_allowed": false,
+    "outdoor": true,
+    "activities": [
+      "가볍게 산책하기",
+      "상점 간판 살펴보기",
+      "벤치에서 쉬기"
+    ]
   },
   "도서관": {
     "_설명": "조용한 실내 장소 예시",
     "channel_name": "도서관",
-    "description": "책장과 열람대가 있는 조용한 도서관.",
-    "objects": ["책장", "책", "책상", "스탠드"],
+    "description": "조용히 독서를 할 수 있는 공간.",
+    "objects": [
+      "책장",
+      "책",
+      "책상",
+      "스탠드"
+    ],
     "group": "public",
     "parent": null,
     "allowed_characters": [],
-    "time_multipliers": {"morning": 1.0, "day": 1.4, "evening": 1.1, "night": 0.5, "late_night": 0.1}
+    "time_multipliers": {
+      "morning": 1.0,
+      "day": 1.4,
+      "evening": 1.1,
+      "night": 0.5,
+      "late_night": 0.1
+    },
+    "seats": {
+      "책상 1": 4,
+      "책상 2": 3
+    },
+    "menus": {
+      "전체": []
+    },
+    "nap_allowed": true,
+    "outdoor": false,
+    "activities": [
+      "책 찾아보기",
+      "조용히 독서하기",
+      "노트에 내용 정리하기"
+    ]
+  },
+  "훈련실": {
+    "channel_name": "훈련실",
+    "description": "몸을 단련할 수 있는 트레이닝실.",
+    "objects": [
+      "요가매트",
+      "덤벨",
+      "정수기",
+      "수건"
+    ],
+    "group": "public",
+    "parent": null,
+    "allowed_characters": [],
+    "time_multipliers": {
+      "morning": 1.0,
+      "day": 1.0,
+      "evening": 1.0,
+      "night": 1.0,
+      "late_night": 1.0
+    },
+    "seats": {},
+    "menus": {
+      "전체": []
+    },
+    "nap_allowed": false,
+    "outdoor": false,
+    "activities": [
+      "가벼운 스트레칭",
+      "덤벨로 근력 운동",
+      "요가 매트에서 균형 훈련",
+      "맨몸 체력 운동",
+      "호흡 정리와 마무리 스트레칭"
+    ]
+  },
+  "엘리스 방": {
+    "channel_name": "엘리스 방",
+    "description": "엘리스의 개인적인 공간. 아기자기한 장식품들과 작고 실용적인 물건들이 잘 정돈되어있다.",
+    "objects": [
+      "화장대",
+      "붙받이옷장",
+      "하얀선반",
+      "인형들",
+      "침대",
+      "램프"
+    ],
+    "group": "private",
+    "parent": null,
+    "allowed_characters": [
+      "Alice"
+    ],
+    "time_multipliers": {
+      "morning": 1.0,
+      "day": 1.0,
+      "evening": 1.0,
+      "night": 1.0,
+      "late_night": 1.0
+    },
+    "seats": {},
+    "menus": {
+      "전체": []
+    },
+    "nap_allowed": false,
+    "outdoor": false,
+    "activities": [
+      "수첩에 소품 아이디어 적기",
+      "소품 정리하기",
+      "휴식하기"
+    ]
+  },
+  "사야 방": {
+    "channel_name": "사야 방",
+    "description": "사야의 개인적인 공간. 무언가를 정비하기 위한 도구들과 정리하지 못한 옷들이 널부러져 어지러워보인다. ",
+    "objects": [
+      "도구상자",
+      "도구들",
+      "옷장",
+      "선반",
+      "옷",
+      "침대",
+      "램프",
+      "책상"
+    ],
+    "group": "private",
+    "parent": null,
+    "allowed_characters": [
+      "Saya"
+    ],
+    "seats": {},
+    "menus": {
+      "전체": []
+    },
+    "nap_allowed": false,
+    "outdoor": false,
+    "activities": [
+      "음악 듣기",
+      "멜로디 아이디어 메모하기",
+      "책상 정리하기",
+      "휴식하기"
+    ],
+    "time_multipliers": {
+      "morning": 1.0,
+      "day": 1.0,
+      "evening": 1.0,
+      "night": 1.0,
+      "late_night": 1.0
+    }
+  },
+  "유리 방": {
+    "channel_name": "유리 방",
+    "description": "유리의 개인적인 공간. 수집품과 책들로 선반을 가득 채운게 눈에 들어온다. ",
+    "objects": [
+      "선반",
+      "책장",
+      "책들",
+      "수집품",
+      "옷장",
+      "침대",
+      "램프"
+    ],
+    "group": "private",
+    "parent": null,
+    "allowed_characters": [
+      "Yuri"
+    ],
+    "seats": {},
+    "menus": {
+      "전체": []
+    },
+    "nap_allowed": false,
+    "outdoor": false,
+    "activities": [
+      "책 읽기",
+      "수집품 정리하기",
+      "노트 정리하기",
+      "휴식하기"
+    ],
+    "time_multipliers": {
+      "morning": 1.0,
+      "day": 1.0,
+      "evening": 1.0,
+      "night": 1.0,
+      "late_night": 1.0
+    }
   }
 }

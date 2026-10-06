@@ -8,6 +8,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from dotenv import dotenv_values
+from form_help import parse_json
 
 
 def app_root():
@@ -34,7 +35,7 @@ class Store:
         self.data = {}
         for name in ('characters', 'places', 'settings', 'relations'):
             path = self.root / 'config' / f'{name}.json'
-            value = json.loads(path.read_text(encoding='utf-8-sig')) if path.exists() else {}
+            value = parse_json(path.read_text(encoding='utf-8-sig'), path.name) if path.exists() else {}
             if not isinstance(value, dict):
                 raise ValueError(f'{path.name}: 객체 형식이어야 합니다.')
             self.data[name] = value
@@ -102,7 +103,7 @@ class Store:
             raise ValueError('백업 폴더를 선택해주세요.')
         # Validate before any replacement. History/SQLite files are never included.
         for source in (backup / 'config').glob('*.json'):
-            json.loads(source.read_text(encoding='utf-8-sig'))
+            parse_json(source.read_text(encoding='utf-8-sig'), source.name)
         self.backup()
         for name in ('config', 'prompts', 'profiles'):
             source = backup / name
@@ -150,3 +151,77 @@ class Store:
         for name in ('characters', 'places'):
             atomic_write(self.root / 'config' / f'{name}.json', json.dumps(data[name], ensure_ascii=False, indent=2) + '\n')
         self.data = data
+
+
+class DraftStore(Store):
+    """Stage GUI edits in memory; publish only after all forms validate."""
+    def __init__(self, root):
+        self.pending = {}
+        super().__init__(root)
+
+    def stage(self, path, text):
+        self.pending[Path(path)] = text.encode('utf-8') if isinstance(text, str) else text
+
+    def write_json(self, name, value):
+        self.stage(self.root / 'config' / f'{name}.json', json.dumps(value, ensure_ascii=False, indent=2) + '\n')
+        self.data[name] = copy.deepcopy(value)
+
+    def write_env(self, changes):
+        path = self.root / '.env'
+        raw = self.pending.get(path)
+        text = raw.decode('utf-8-sig') if raw is not None else path.read_text(encoding='utf-8-sig') if path.exists() else ''
+        remaining = dict(changes); result = []
+        for line in text.splitlines():
+            match = re.match(r'^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=', line)
+            if match and match[1] in changes:
+                if match[1] in remaining: result.append(self.env_line(match[1], remaining.pop(match[1])))
+            else: result.append(line)
+        result.extend(self.env_line(k,v) for k,v in remaining.items())
+        self.stage(path, '\n'.join(result) + '\n')
+        self.env.update(changes)
+
+    def save_prompt(self, relative, text):
+        path = self.safe_path(relative)
+        if not path.is_relative_to((self.root/'prompts').resolve()) or path.suffix != '.txt':
+            raise ValueError('프롬프트는 prompts 폴더의 .txt 파일로 저장해주세요.')
+        self.stage(path, text)
+
+    def remove_character(self, key):
+        self.data['characters'].pop(key)
+        for pair in list(self.data['relations']):
+            if not pair.startswith('_') and key in pair.split('|'): del self.data['relations'][pair]
+        for place in self.data['places'].values():
+            if isinstance(place,dict) and isinstance(place.get('allowed_characters'),list):
+                place['allowed_characters'] = [x for x in place['allowed_characters'] if x != key]
+        for name in ('characters','relations','places'): self.write_json(name,self.data[name])
+
+    def remove_place(self, key):
+        self.data['places'].pop(key)
+        for character in self.data['characters'].values():
+            if isinstance(character,dict):
+                character.get('place_weights',{}).pop(key,None)
+                character['restricted_places'] = [x for x in character.get('restricted_places',[]) if x != key]
+                if character.get('private_room') == key: character['private_room'] = None
+        for place in self.data['places'].values():
+            if isinstance(place,dict) and place.get('parent') == key: place['parent'] = None
+        for name in ('characters','places'): self.write_json(name,self.data[name])
+
+    def flush(self):
+        if not self.pending: return
+        self.backup()
+        originals = {p:p.read_bytes() if p.exists() else None for p in self.pending}
+        replaced = []
+        try:
+            for path, content in self.pending.items():
+                path.parent.mkdir(parents=True,exist_ok=True)
+                temporary = path.with_name(path.name + '.tmp')
+                try:
+                    temporary.write_bytes(content)
+                    os.replace(temporary,path); replaced.append(path)
+                finally: temporary.unlink(missing_ok=True)
+        except Exception:
+            for path in reversed(replaced):
+                if originals[path] is None: path.unlink(missing_ok=True)
+                else: path.write_bytes(originals[path])
+            raise
+        self.pending.clear()

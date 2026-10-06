@@ -63,7 +63,7 @@ class SettingsTests(unittest.TestCase):
         self.assertIsNone(self.store.data['places']['Hall']['parent'])
     def test_bad_json_refuses_without_overwrite(self):
         path=self.root/'config/settings.json'; path.write_text('{bad')
-        with self.assertRaises(json.JSONDecodeError): Store(self.root)
+        with self.assertRaisesRegex(ValueError,'settings.json.*JSON'): Store(self.root)
         self.assertEqual(path.read_text(),'{bad')
     def test_paths_rejected(self):
         with self.assertRaises(ValueError): self.store.save_prompt('../oops.txt','text')

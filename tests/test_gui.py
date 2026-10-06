@@ -63,9 +63,10 @@ class GuiTests(unittest.TestCase):
         monitor.request(key, '42', '답변 생성 중', '123', '안녕하세요 sk-test-private')
         self.window.nav.setCurrentRow(9)
         panel = self.window.stack.currentWidget()
+        panel.characters.setCurrentRow(next(i for i in range(panel.characters.count()) if panel.characters.item(i).data(256)==key)); panel.refresh()
         self.assertIn('호텔', panel.detail.text())
         self.assertIn('검은 코트', panel.detail.text())
-        self.assertIn('답변 생성 중', panel.characters.item(0).text())
+        self.assertIn('답변 생성 중', next(panel.characters.item(i).text() for i in range(panel.characters.count()) if panel.characters.item(i).data(256)==key))
         self.assertNotIn('sk-test-private', panel.conversation.toPlainText())
         self.assertIn('[숨김]', panel.conversation.toPlainText())
 
@@ -140,3 +141,134 @@ class GuiTests(unittest.TestCase):
         saved=json.loads((self.root/'config/characters.json').read_text(encoding='utf-8'))
         self.assertEqual(saved[key]['prompt_guide']['speech'],'반말, 짧은 문장')
         self.assertIn('outfit_preferences_enabled',saved[key])
+
+    def test_drafts_survive_tabs_and_item_switches(self):
+        from PySide6.QtWidgets import QComboBox,QPlainTextEdit
+        self.window.nav.setCurrentRow(1);page=self.window.stack.currentWidget()
+        selector=page.findChild(QComboBox)
+        edit=next(e for e in page.findChildren(QPlainTextEdit) if e.placeholderText().startswith('존댓말/반말'))
+        edit.setPlainText('유지할 말투 초안')
+        self.window.nav.setCurrentRow(3)
+        self.window.stack.currentWidget().findChild(QLineEdit).setText('세계 초안')
+        self.window.nav.setCurrentRow(1)
+        self.assertIs(self.window.stack.currentWidget(),page)
+        selector.setCurrentIndex(1);selector.setCurrentIndex(0)
+        self.assertEqual(edit.toPlainText(),'유지할 말투 초안')
+        self.assertTrue(self.window.dirty)
+        saved=json.loads((self.root/'config/characters.json').read_text())
+        self.assertNotEqual(saved['Alice']['prompt_guide']['speech'],'유지할 말투 초안')
+        self.window.save_all()
+        self.assertEqual(json.loads((self.root/'config/characters.json').read_text())['Alice']['prompt_guide']['speech'],'유지할 말투 초안')
+        self.assertEqual(json.loads((self.root/'config/settings.json').read_text())['world_name'],'세계 초안')
+
+    def test_bad_json_prevents_all_writes_and_keeps_drafts(self):
+        from PySide6.QtWidgets import QPlainTextEdit
+        self.window.nav.setCurrentRow(3)
+        name=self.window.stack.currentWidget().findChild(QLineEdit);name.setText('저장되면 안 됨')
+        self.window.nav.setCurrentRow(2)
+        seats=next(e for e in self.window.stack.currentWidget().findChildren(QPlainTextEdit) if e.placeholderText().startswith('{"테이블'))
+        seats.setPlainText('{"테이블": 4,}')
+        before=(self.root/'config/settings.json').read_bytes()
+        with self.assertRaisesRegex(ValueError,'좌석별 정원.*JSON'):self.window.save_all()
+        self.assertEqual((self.root/'config/settings.json').read_bytes(),before)
+        self.assertEqual(seats.toPlainText(),'{"테이블": 4,}')
+        self.assertTrue(self.window.dirty)
+        seats.setPlainText('{"테이블": 4}')
+        self.window.save_all()
+        self.assertEqual(json.loads((self.root/'config/settings.json').read_text())['world_name'],'저장되면 안 됨')
+
+    def test_relation_pair_drafts_are_independent(self):
+        from PySide6.QtWidgets import QComboBox,QPlainTextEdit
+        self.window.nav.setCurrentRow(4);page=self.window.stack.currentWidget()
+        first,second=page.findChildren(QComboBox)[:2];editor=page.findChild(QPlainTextEdit)
+        editor.setPlainText('첫 번째 관계 초안');second.setCurrentIndex(2)
+        editor.setPlainText('두 번째 관계 초안');second.setCurrentIndex(1)
+        self.assertEqual(editor.toPlainText(),'첫 번째 관계 초안')
+        self.window.save_all()
+        saved=json.loads((self.root/'config/relations.json').read_text())
+        self.assertEqual(saved['Alice|Saya']['context'],'첫 번째 관계 초안')
+        self.assertEqual(saved['Alice|Yuri']['context'],'두 번째 관계 초안')
+
+    def test_close_cancel_save_discard_and_save_failure(self):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        from PySide6.QtGui import QCloseEvent
+        self.window.nav.setCurrentRow(3)
+        edit=self.window.stack.currentWidget().findChild(QLineEdit);edit.setText('종료 시 저장')
+        def choose(text):
+            def run(dialog):
+                self.assertEqual(dialog.text(),'변경한 내용을 저장할까요?')
+                next(b for b in dialog.buttons() if b.text()==text).click()
+                return 0
+            return run
+        event=QCloseEvent()
+        with patch.object(QMessageBox,'exec',choose('취소')):self.window.closeEvent(event)
+        self.assertFalse(event.isAccepted());self.assertTrue(self.window.dirty)
+        with patch.object(QMessageBox,'exec',choose('저장 후 종료')),patch.object(self.window.store,'flush',side_effect=OSError('쓰기 실패')),patch.object(self.window,'error'):
+            event=QCloseEvent();self.window.closeEvent(event)
+        self.assertFalse(event.isAccepted());self.assertEqual(edit.text(),'종료 시 저장');self.assertTrue(self.window.dirty)
+        with patch.object(QMessageBox,'exec',choose('저장 후 종료')):
+            event=QCloseEvent();self.window.closeEvent(event)
+        self.assertTrue(event.isAccepted());self.assertFalse(self.window.dirty)
+        self.assertEqual(json.loads((self.root/'config/settings.json').read_text())['world_name'],'종료 시 저장')
+        edit.setText('버릴 수정')
+        with patch.object(QMessageBox,'exec',choose('저장하지 않고 종료')):
+            event=QCloseEvent();self.window.closeEvent(event)
+        self.assertTrue(event.isAccepted())
+        self.assertEqual(json.loads((self.root/'config/settings.json').read_text())['world_name'],'종료 시 저장')
+
+    def test_checkbox_help_and_long_fields(self):
+        from setup_gui import ResizableTextEdit
+        from setup_wizard import FEATURE_QUESTIONS
+        from form_help import CHECKBOX_HELP
+        self.assertTrue(all(k in CHECKBOX_HELP for k,_,_ in FEATURE_QUESTIONS))
+        self.window.nav.setCurrentRow(3);page=self.window.stack.currentWidget()
+        from PySide6.QtWidgets import QLabel
+        self.assertTrue(any('개인별 사용 설정도' in label.text() for label in page.findChildren(QLabel)))
+        self.assertTrue(all(e.minimumHeight()>=150 for e in page.findChildren(ResizableTextEdit)))
+
+    def test_monitor_controls_do_not_mark_settings_dirty(self):
+        self.window.nav.setCurrentRow(9)
+        panel=self.window.stack.currentWidget();panel.search.setText('검색')
+        panel.filter.setCurrentText('수면');panel.sort.setCurrentText('허기 높은 순')
+        self.assertFalse(self.window.dirty)
+
+    def test_example_notice_is_only_on_examples(self):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QComboBox,QLabel
+        self.window.nav.setCurrentRow(1);page=self.window.stack.currentWidget()
+        self.assertTrue(any('참고용 예시' in label.text() for label in page.findChildren(QLabel)))
+        with patch('setup_gui.QInputDialog.getText',return_value=('MyCharacter',True)):self.window.add_item('characters')
+        selector=page.findChild(QComboBox);selector.setCurrentText('MyCharacter')
+        self.assertFalse(self.window.store.data['characters']['MyCharacter'].get('is_example',False))
+        self.assertFalse(any('참고용 예시' in label.text() and not label.parentWidget().isHidden() for label in page.findChildren(QLabel)))
+
+    def test_navigation_builder_error_restores_selection(self):
+        from unittest.mock import patch
+        self.window.builders[3]=lambda: (_ for _ in ()).throw(ValueError('page error'))
+        with patch.object(self.window,'error'):self.window.nav.setCurrentRow(3)
+        self.assertEqual(self.window.nav.currentRow(),self.window.stack.currentIndex())
+
+    def test_update_preference_is_a_draft_and_survives_refresh(self):
+        self.window.nav.setCurrentRow(7)
+        check=self.window.stack.currentWidget().findChild(QCheckBox)
+        check.setChecked(False)
+        self.assertTrue(self.window.dirty)
+        self.assertFalse((self.root/'desktop_settings.json').exists())
+        self.window.refresh()
+        self.assertFalse(self.window.stack.currentWidget().findChild(QCheckBox).isChecked())
+        self.window.save_all()
+        self.assertFalse(json.loads((self.root/'desktop_settings.json').read_text())['check_updates_on_start'])
+
+    def test_category_and_world_drafts_save_without_overwriting_each_other(self):
+        from unittest.mock import patch
+        self.window.nav.setCurrentRow(3)
+        self.window.stack.currentWidget().findChild(QLineEdit).setText('새 세계')
+        self.window.nav.setCurrentRow(8)
+        with patch('setup_gui.QInputDialog.getText',side_effect=[('hotel',True),('호텔',True)]):
+            next(b for b in self.window.stack.currentWidget().findChildren(QPushButton) if b.text()=='추가').click()
+        self.assertNotIn('hotel',json.loads((self.root/'config/settings.json').read_text())['channel_setup']['category_names'])
+        self.window.save_all()
+        saved=json.loads((self.root/'config/settings.json').read_text())
+        self.assertEqual(saved['world_name'],'새 세계')
+        self.assertEqual(saved['channel_setup']['category_names']['hotel'],'호텔')
