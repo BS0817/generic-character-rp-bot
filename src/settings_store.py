@@ -129,9 +129,12 @@ class Store:
         for place in data['places'].values():
             if isinstance(place, dict) and isinstance(place.get('allowed_characters'), list):
                 place['allowed_characters'] = [x for x in place['allowed_characters'] if x != key]
+        for event in data['settings'].get('calendar_events',{}).values():
+            if isinstance(event,dict):
+                for field in ('known_by','participants'): event[field]=[x for x in event.get(field,[]) if x!=key]
         # Token, prompt, and learned history are deliberately retained for recovery.
         self.backup()
-        for name in ('characters', 'relations', 'places'):
+        for name in ('characters', 'relations', 'places', 'settings'):
             atomic_write(self.root / 'config' / f'{name}.json', json.dumps(data[name], ensure_ascii=False, indent=2) + '\n')
         self.data = data
 
@@ -142,6 +145,8 @@ class Store:
             if isinstance(character, dict):
                 character.get('place_weights', {}).pop(key, None)
                 character['restricted_places'] = [x for x in character.get('restricted_places', []) if x != key]
+                for entry in character.get('weekly_schedule',[]):
+                    if entry.get('place')==key: entry['place']=None
                 if character.get('private_room') == key:
                     character['private_room'] = None
         for place in data['places'].values():
@@ -193,7 +198,10 @@ class DraftStore(Store):
         for place in self.data['places'].values():
             if isinstance(place,dict) and isinstance(place.get('allowed_characters'),list):
                 place['allowed_characters'] = [x for x in place['allowed_characters'] if x != key]
-        for name in ('characters','relations','places'): self.write_json(name,self.data[name])
+        for event in self.data['settings'].get('calendar_events',{}).values():
+            if isinstance(event,dict):
+                for field in ('known_by','participants'): event[field]=[x for x in event.get(field,[]) if x!=key]
+        for name in ('characters','relations','places','settings'): self.write_json(name,self.data[name])
 
     def remove_place(self, key):
         self.data['places'].pop(key)
@@ -201,6 +209,8 @@ class DraftStore(Store):
             if isinstance(character,dict):
                 character.get('place_weights',{}).pop(key,None)
                 character['restricted_places'] = [x for x in character.get('restricted_places',[]) if x != key]
+                for entry in character.get('weekly_schedule',[]):
+                    if entry.get('place')==key: entry['place']=None
                 if character.get('private_room') == key: character['private_room'] = None
         for place in self.data['places'].values():
             if isinstance(place,dict) and place.get('parent') == key: place['parent'] = None

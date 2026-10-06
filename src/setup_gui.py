@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QFormLayout,
     QLabel, QPushButton, QLineEdit, QPlainTextEdit, QCheckBox, QComboBox,
     QListWidget, QStackedWidget, QScrollArea, QMessageBox, QInputDialog,
-    QFileDialog, QSpinBox, QDoubleSpinBox, QTimeEdit, QDialog, QDialogButtonBox, QSystemTrayIcon, QMenu, QStyle,
+    QFileDialog, QDateEdit, QSpinBox, QDoubleSpinBox, QTimeEdit, QDialog, QDialogButtonBox, QSystemTrayIcon, QMenu, QStyle,
 )
 from settings_store import DraftStore, app_root, atomic_write
 from app_version import VERSION
@@ -25,6 +25,8 @@ from setup_wizard import FEATURE_QUESTIONS
 from monitor_panel import MonitorPanel
 from rp_policy import DEFAULT_COMMON_PROMPT, GUIDE_FIELDS, build_prompt
 from form_help import CHECKBOX_HELP, JSON_HELP, JSON_EXAMPLES, parse_json
+from feature_dependencies import validate_features, toggle_changes, LABELS as FEATURE_LABELS
+from world_calendar import CALENDAR_DEFAULT, EVENT_DEFAULT, HOURS_DEFAULT, validate_calendar
 
 STYLE = '''
 QWidget { background:#151822; color:#e6e8ef; font-family:"Malgun Gothic"; font-size:14px; }
@@ -32,7 +34,7 @@ QMainWindow { background:#151822; }
 QListWidget { background:#1c2030; border:0; border-radius:12px; padding:10px; }
 QListWidget::item { padding:13px; border-radius:7px; }
 QListWidget::item:selected { background:#5d4bb0; color:white; }
-QLineEdit,QPlainTextEdit,QComboBox,QSpinBox,QDoubleSpinBox,QTimeEdit { background:#222738; border:1px solid #343b51; border-radius:7px; padding:8px; }
+QLineEdit,QPlainTextEdit,QComboBox,QSpinBox,QDoubleSpinBox,QTimeEdit,QDateEdit { background:#222738; border:1px solid #343b51; border-radius:7px; padding:8px; }
 QPushButton { background:#7360cf; border:0; border-radius:8px; padding:10px 18px; color:white; }
 QPushButton:hover { background:#8978e2; }
 QPushButton:disabled { background:#343b51; color:#9096a9; }
@@ -44,9 +46,9 @@ QScrollArea { border:0; }
 QToolTip { background:#343b51; color:white; }
 '''
 CHAR_DEFAULT = dict(name='새 캐릭터', token_env='', prompt_file='', private_room=None,
-    default_outfit='', current_outfit='', outfit_preferences_enabled=False, preferred_style='', preferred_colors='', disliked_outfits='', hated_outfits='', outfit_notes='', sleep_start_range=[[1,0],[3,0]], wake_range=[[8,0],[10,0]], inventory=[], habits=[], goals=[], place_weights={}, restricted_places=[])
+    default_outfit='', current_outfit='', outfit_preferences_enabled=False, preferred_style='', preferred_colors='', disliked_outfits='', hated_outfits='', outfit_notes='', sleep_start_range=[[1,0],[3,0]], wake_range=[[8,0],[10,0]], inventory=[], habits=[], goals=[], place_weights={}, restricted_places=[], weekly_schedule=[])
 PLACE_DEFAULT = dict(channel_name='', description='', objects=[], group='public', parent=None,
-    allowed_characters=[], seats={}, menus={'전체':[]}, nap_allowed=False, outdoor=False, activities=[], time_multipliers=dict(morning=1.,day=1.,evening=1.,night=1.,late_night=1.))
+    allowed_characters=[], opening_hours=copy.deepcopy(HOURS_DEFAULT), seats={}, menus={'전체':[]}, nap_allowed=False, outdoor=False, activities=[], time_multipliers=dict(morning=1.,day=1.,evening=1.,night=1.,late_night=1.))
 LABELS = {'outfit_preferences_enabled':'복장 취향 사용','preferred_style':'선호 스타일','preferred_colors':'선호 색·소재','disliked_outfits':'별로 좋아하지 않는 복장','hated_outfits':'싫어하는 복장','outfit_notes':'복장 취향 추가 설명','seats':'좌석별 정원 (JSON)','menus':'시간대별 메뉴 (JSON)','nap_allowed':'낮잠 가능한 장소','outdoor':'야외 장소','activities':'단계별 활동 (한 줄에 하나)','default_outfit':'기본 복장','current_outfit':'현재 복장 (비우면 기본 복장)','name':'이름','token_env':'토큰 환경변수 이름','prompt_file':'프롬프트 경로',
     'private_room':'개인실 이름 (없으면 비워두기)','sleep_start_range':'취침 시작 범위','wake_range':'기상 범위',
     'inventory':'소지품 (한 줄에 하나)','habits':'생활 습관 (한 줄에 하나)','goals':'장기 목표 (한 줄에 하나)',
@@ -54,6 +56,8 @@ LABELS = {'outfit_preferences_enabled':'복장 취향 사용','preferred_style':
     'description':'장소 설명','objects':'주변 사물 (한 줄에 하나)','group':'장소 그룹',
     'parent':'상위 장소 (없으면 비워두기)','allowed_characters':'출입 허용 캐릭터 키 (비우면 모두)',
     'place_weights':'장소별 방문 가중치','time_multipliers':'시간대별 방문 배율','context':'관계 설명'}
+
+LABELS.update(weekly_schedule='요일별 일정 (JSON)', opening_hours='영업시간', enabled='이 장소의 영업시간 적용', days='요일 (한 줄에 하나: 월~일)', opens='영업 시작 (HH:MM)', closes='영업 종료 (HH:MM)', start_date='가상 세계 시작 날짜', start_time='가상 세계 시작 시각 (HH:MM)', show_date='환경에 날짜 표시', show_weekday='환경에 요일 표시', show_season='환경에 계절 표시', season_profiles='계절별 월·기온·날씨 (JSON)', date='날짜 / 기준 시작일', offset_days='시작일 기준 기념일 일수 (100일: 100)', participants='관련 인물 (캐릭터 키·사용자 ID, 한 줄에 하나)', known_by='이 기념일을 아는 캐릭터 키 (한 줄에 하나)', public='모든 캐릭터에게 공개', note='기념일 설명', kind='기념일 종류', leap_day='2월 29일 처리', mode='세계 시간 방식')
 
 
 class Job(QThread):
@@ -122,11 +126,20 @@ class Fields:
         self.readers = {}
     def add(self, key, value, label=None, secret=False, multiline=False):
         label = label or LABELS.get(key, key)
-        if key in ('seats','menus'):
+        if key in ('seats','menus','weekly_schedule','season_profiles'):
             widget = ResizableTextEdit(json.dumps(value,ensure_ascii=False,indent=2), 240)
-            widget.setPlaceholderText('{"테이블 1": 4, "소파": 2}' if key=='seats' else '{"전체": ["차", "샌드위치"], "아침": ["토스트"]}')
-            widget.setToolTip('좌석은 이름: 정원, 메뉴는 아침·점심·저녁·야식·전체: 음식 이름 목록으로 입력하세요.')
+            widget.setPlaceholderText(JSON_EXAMPLES.get(key,''))
+            widget.setToolTip(JSON_HELP)
             reader = lambda: parse_json(widget.toPlainText(), label, key)
+        elif key in ('mode','kind','leap_day'):
+            choices={'mode':[('real','현실 날짜·시간'),('virtual','지정한 가상 날짜에서 진행')], 'kind':[('annual','매년 (생일·결혼기념일)'),('milestone','시작일 기준 N일째 (커플 100일)'),('once','지정 날짜에 한 번')], 'leap_day':[('feb28','평년에는 2월 28일'),('mar1','평년에는 3월 1일'),('leap_only','윤년에만 기념')]}[key]
+            widget=QComboBox()
+            for item,title in choices: widget.addItem(title,item)
+            widget.setCurrentIndex(max(0,widget.findData(value))); reader=widget.currentData
+        elif key in ('start_date','date'):
+            from PySide6.QtCore import QDate
+            widget=QDateEdit(); widget.setDateRange(QDate(1,1,1),QDate(9999,12,31)); widget.setDate(QDate.fromString(str(value),'yyyy-MM-dd'))
+            widget.setDisplayFormat('yyyy-MM-dd'); widget.setCalendarPopup(True); reader=lambda:widget.date().toString('yyyy-MM-dd')
         elif isinstance(value, bool):
             widget = QCheckBox('사용')
             widget.setChecked(value)
@@ -147,6 +160,7 @@ class Fields:
         elif isinstance(value, (int,float)):
             widget = NoWheelSpinBox() if isinstance(value,int) else NoWheelDoubleSpinBox()
             widget.setRange(0,100000); widget.setValue(value)
+            if key=='offset_days': widget.setRange(1,365000)
             if isinstance(widget,QDoubleSpinBox): widget.setDecimals(3)
             reader = widget.value
         elif isinstance(value,list) or multiline:
@@ -159,6 +173,7 @@ class Fields:
                 widget.setPlaceholderText('키 또는 토큰을 입력하세요')
             reader = widget.text
             if value is None: reader = lambda: widget.text().strip() or None
+        widget.setProperty('field_key',key)
         self.form.addRow(label, checkbox_row(widget,key) if isinstance(widget,QCheckBox) else widget)
         if key in JSON_EXAMPLES:
             help_label = QLabel(JSON_HELP + '\n예시: ' + JSON_EXAMPLES[key])
@@ -188,10 +203,10 @@ class Window(QMainWindow):
         sidebar=QVBoxLayout(); brand=QLabel('RPBot'); brand.setObjectName('title'); sidebar.addWidget(brand)
         sidebar.addWidget(QLabel(f'캐릭터 세계 관리  ·  v{VERSION}'))
         self.nav=QListWidget(); self.nav.setFixedWidth(220)
-        self.nav.addItems(['시작하기','캐릭터','장소','세계관 · 기능','관계','API · Discord','백업 · 복원','업데이트','카테고리','모니터링'])
+        self.nav.addItems(['시작하기','캐릭터','장소','세계관 · 기능','관계','API · Discord','백업 · 복원','업데이트','카테고리','모니터링','세계 달력 · 기념일'])
         sidebar.addWidget(self.nav); layout.addLayout(sidebar)
         self.stack=QStackedWidget(); layout.addWidget(self.stack,1)
-        self.builders=[self.home,lambda:self.collection('characters'),lambda:self.collection('places'),self.world,self.relations,self.connections,self.backups,self.updates,self.categories,lambda:MonitorPanel(self)]
+        self.builders=[self.home,lambda:self.collection('characters'),lambda:self.collection('places'),self.world,self.relations,self.connections,self.backups,self.updates,self.categories,lambda:MonitorPanel(self),self.calendar]
         for _ in self.builders: self.stack.addWidget(QWidget())
         self.nav.currentRowChanged.connect(self.navigate)
         self.nav.setCurrentRow(0)
@@ -218,8 +233,10 @@ class Window(QMainWindow):
     def confirm(self,text):
         return QMessageBox.question(self,'RPBot',text,QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)==QMessageBox.StandardButton.Yes
     def mark_dirty(self,*args):
-        self.dirty=True
         widget=self.sender()
+        if isinstance(widget,QWidget) and widget.property('skip_next_dirty'):
+            widget.setProperty('skip_next_dirty',False); return
+        self.dirty=True
         while isinstance(widget,QWidget):
             token=widget.property('draft_key')
             if token:
@@ -232,7 +249,7 @@ class Window(QMainWindow):
             if child.property('draft_tracked'): continue
             child.setProperty('draft_tracked',True)
             if child.property('skip_dirty') or (isinstance(child,QPlainTextEdit) and child.isReadOnly()): continue
-            for name in ('textChanged','toggled','valueChanged','timeChanged','currentTextChanged'):
+            for name in ('textChanged','toggled','valueChanged','dateChanged','timeChanged','currentTextChanged'):
                 signal=getattr(child,name,None)
                 if signal is not None:
                     signal.connect(self.mark_dirty)
@@ -244,6 +261,7 @@ class Window(QMainWindow):
         try:
             for token,save in list(self.savers.items()):
                 if token in self.dirty_forms: save()
+            self.validate_configuration()
             self.store.flush()
         except Exception:
             self.store.data, self.store.env, self.store.pending = before
@@ -254,6 +272,10 @@ class Window(QMainWindow):
         self.dirty = False
         self.dirty_forms.clear()
         self.statusBar().showMessage('모든 수정 사항을 저장했습니다.')
+
+    def validate_configuration(self):
+        validate_features(self.store.data['settings'])
+        validate_calendar(self.store.data['settings'],self.store.data['characters'],self.store.data['places'])
 
     def navigate(self,index):
         if index<0: return
@@ -296,13 +318,21 @@ class Window(QMainWindow):
         for title,name in [('캐릭터','characters'),('장소','places'),('초기 관계','relations')]:
             layout.addWidget(QLabel(f'{title}   {len([k for k in self.store.data[name] if not k.startswith("_")])}개'))
         layout.addWidget(QLabel('설정과 프롬프트는 저장 전에 자동으로 백업됩니다.\n대화 기록과 기억 데이터는 설정 변경으로 지워지지 않습니다.'))
+        self.button(layout,'모든 수정 사항 저장',self.save_all)
         self.button(layout,'봇 실행',self.run_bot)
         self.button(layout,'설정 폴더 열기',lambda:QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.root))))
         self.button(layout,'초보자 설치 가이드',lambda:QDesktopServices.openUrl(QUrl('https://bs0817.github.io/generic-character-rp-bot/guide_ko.html')))
         layout.addStretch(); return page
     def run_bot(self):
         if bot_running(self.root): raise ValueError('RPBot이 이미 실행 중입니다.')
-        if self.dirty: raise ValueError('설정을 먼저 저장해주세요.')
+        if self.dirty:
+            dialog=QMessageBox(self); dialog.setWindowTitle('저장 후 실행'); dialog.setText('수정한 설정을 저장한 뒤 봇을 실행할까요?')
+            save=dialog.addButton('저장 후 실행',QMessageBox.ButtonRole.AcceptRole)
+            cancel=dialog.addButton('취소',QMessageBox.ButtonRole.RejectRole)
+            dialog.setDefaultButton(save); dialog.setEscapeButton(cancel); dialog.exec()
+            if dialog.clickedButton()!=save: return
+            self.save_all()
+        self.validate_configuration()
         command=[str(self.root/'RPBot.exe')] if getattr(sys,'frozen',False) else [sys.executable,str(self.root/'src'/'bot.py')]
         if not Path(command[-1]).exists(): raise ValueError('RPBot 실행 파일이 없습니다.')
         data_root = Path(self.store.env.get('BOT_DATA_DIR') or self.root)
@@ -542,7 +572,19 @@ class Window(QMainWindow):
         fields.add('custom_conversation_rule',data.get('custom_conversation_rule',''),'직접 설정 대화 방식',multiline=True)
         fields.add('timezone',data.get('timezone','Asia/Seoul'),'생활 시간대')
         features=Fields(fields.form)
-        for key,label,default in FEATURE_QUESTIONS: features.add(key,data.get('features',{}).get(key,default),label)
+        checks={key:features.add(key,data.get('features',{}).get(key,default),label) for key,label,default in FEATURE_QUESTIONS}
+        def change_feature(key,on):
+            # Reconstruct the state before this click for a reversible dependency transaction.
+            values=features.values(); values[key]=not on
+            changes=toggle_changes({'features':values},key,on)
+            related=[FEATURE_LABELS.get(k,k) for k in changes if k!=key]
+            accepted=not related or self.confirm(('함께 켤 필수 기능:' if on else '함께 끌 종속 기능:')+'\n'+'\n'.join(related)+'\n\n이 변경을 적용할까요?')
+            for changed,value in (changes.items() if accepted else [(key,not on)]):
+                checks[changed].blockSignals(True); checks[changed].setChecked(value); checks[changed].blockSignals(False)
+            if not accepted: checks[key].setProperty('skip_next_dirty',True)
+            if accepted:
+                self.dirty=True; self.dirty_forms.add('world')
+        for key,widget in checks.items(): widget.toggled.connect(lambda on,k=key:change_feature(k,on))
         channels=Fields(fields.form); channel_data=data.get('channel_setup',{})
         channels.add('create_categories',channel_data.get('create_categories',True),'장소 그룹별 카테고리 생성')
         channels.add('create_status_channel',channel_data.get('create_status_channel',True),'상태 채널 생성')
@@ -560,6 +602,66 @@ class Window(QMainWindow):
             data['channel_setup']=dict(data.get('channel_setup',{}),**channel_values); self.store.write_json('settings',data); self.ok()
         self.savers['world']=save
         self.button(layout,'세계관 · 기능 저장',self.save_all).setToolTip('다른 탭의 수정 내용도 함께 저장합니다.'); return page
+
+    def calendar(self):
+        page,layout=self.page('세계 달력 · 기념일','세계관 · 기능에서 사용할 기능을 켜세요. 가상 시간도 현실과 같은 속도로 진행하며 종료 중 흐른 시간은 재시작 시 반영합니다. 시작 날짜·시각을 바꾸면 새 기준으로 시작합니다.')
+        page.setProperty('draft_key','calendar')
+        fields,content=self.scrolled_form(layout)
+        data=copy.deepcopy(self.store.data['settings'].get('calendar',{}))
+        for key,value in CALENDAR_DEFAULT.items(): fields.add(key,data.get(key,copy.deepcopy(value)),{'mode':'세계 시간 방식'}.get(key))
+        def save_calendar():
+            settings=copy.deepcopy(self.store.data['settings']); settings['calendar']=dict(settings.get('calendar',{}),**fields.values())
+            self.store.write_json('settings',settings)
+        self.savers['calendar']=save_calendar
+        help_label=QLabel('날짜·요일·계절은 환경 영역 한 곳에 표시합니다. 계절별 월은 중복 없이 1~12월을 모두 포함하세요. 요일별 일정은 캐릭터 탭, 영업시간은 장소 탭에서 작성합니다.')
+        help_label.setWordWrap(True); fields.form.addRow('',help_label)
+        selector=QComboBox(); selector.setProperty('skip_dirty',True); fields.form.addRow('기념일 선택',selector)
+        row=QWidget(); buttons=QHBoxLayout(row); buttons.setContentsMargins(0,0,0,0)
+        add=QPushButton('기념일 추가'); remove=QPushButton('선택 기념일 삭제'); buttons.addWidget(add); buttons.addWidget(remove); fields.form.addRow('',row)
+        body=QWidget(); box=QVBoxLayout(body); fields.form.addRow('',body)
+        panels={}; events=copy.deepcopy(self.store.data['settings'].get('calendar_events',{}))
+        def render():
+            key=selector.currentData()
+            for panel in panels.values(): panel.hide()
+            if not key:return
+            if key in panels:panels[key].show();return
+            panel=QWidget(); panel.setProperty('draft_key','event:'+key); box.addWidget(panel); panels[key]=panel
+            adapters=Fields(QFormLayout(panel))
+            event=dict(copy.deepcopy(EVENT_DEFAULT),**events[key])
+            for field,value in event.items():
+                if not field.startswith('_'):adapters.add(field,value,{'kind':'기념일 종류','leap_day':'2월 29일 처리'}.get(field),multiline=field=='note')
+            note=QLabel('매년은 날짜의 월·일을 사용합니다. N일째는 시작일을 1일째로 셉니다. 관련 인물을 입력하는 것만으로 기념일을 알게 되지는 않습니다. 공개하지 않으면 ‘아는 캐릭터’에 지정한 캐릭터만 참고합니다. 독립 개인 RP·DM 장면에는 월드 기념일을 전달하지 않습니다.')
+            note.setWordWrap(True); adapters.form.addRow('',note)
+            def save_event():
+                settings=copy.deepcopy(self.store.data['settings']); all_events=copy.deepcopy(settings.get('calendar_events',{})); all_events[key]=dict(events[key],**adapters.values())
+                self.store.write_json('settings',dict(settings,calendar_events=all_events))
+            self.savers['event:'+key]=save_event;self.track(panel)
+        def sync():
+            selected=selector.currentData();selector.blockSignals(True);selector.clear()
+            for key,event in events.items():
+                if not key.startswith('_'):selector.addItem(f"{event.get('name',key)} ({key})",key)
+            if selected is not None:selector.setCurrentIndex(max(0,selector.findData(selected)))
+            selector.blockSignals(False);render()
+        def add_event():
+            key,accepted=QInputDialog.getText(self,'기념일 추가','기념일 키 (예: alice_birthday)')
+            key=key.strip()
+            if not accepted:return
+            if not key or key.startswith('_') or key in events:raise ValueError('중복되지 않는 기념일 키를 입력하세요. _로 시작할 수 없습니다.')
+            events[key]=copy.deepcopy(EVENT_DEFAULT)
+            settings=copy.deepcopy(self.store.data['settings']);all_events=copy.deepcopy(settings.get('calendar_events',{}));all_events[key]=events[key]
+            self.store.write_json('settings',dict(settings,calendar_events=all_events));self.dirty=True
+            sync();selector.setCurrentIndex(selector.findData(key));self.dirty_forms.add('event:'+key)
+        def remove_event():
+            key=selector.currentData()
+            if not key or not self.confirm('선택한 기념일 설정을 삭제할까요?'):return
+            events.pop(key);self.savers.pop('event:'+key,None);self.dirty_forms.discard('event:'+key)
+            if key in panels:panels.pop(key).deleteLater()
+            settings=copy.deepcopy(self.store.data['settings']);all_events=copy.deepcopy(settings.get('calendar_events',{}));all_events.pop(key,None)
+            self.store.write_json('settings',dict(settings,calendar_events=all_events));self.dirty=True;sync()
+        selector.currentIndexChanged.connect(render)
+        add.clicked.connect(lambda:self.guard(add_event));remove.clicked.connect(lambda:self.guard(remove_event));sync()
+        self.button(layout,'모든 수정 사항 저장',self.save_all)
+        return page
 
     def relations(self):
         page,layout=self.page('캐릭터 관계','시작 시점의 관계를 설정합니다. 이미 학습된 관계와 기억은 초기화하지 않습니다.')

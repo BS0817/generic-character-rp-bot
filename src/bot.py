@@ -15,6 +15,8 @@ from pathlib import Path
 from collections import defaultdict, deque
 from rp_policy import FEATURES, policy_prompt, dialogue_reason, relationship_reason, completed_transfer
 from life_engine import LifeEngine
+from feature_dependencies import validate_features
+from world_calendar import WorldClock, validate_calendar, calendar_display, seasonal_weather, season_profile, place_open, weekly_entry, world_context, visible_events, scheduled_destination
 import functools
 import inspect
 from dotenv import load_dotenv
@@ -254,6 +256,8 @@ def now_kst():
 
     함수명은 이전 버전 호환 때문에 now_kst()를 유지한다.
     """
+    if globals().get("_world_clock") and globals().get("GENERIC_CONFIG_ACTIVE"):
+        return _world_clock.now(CUSTOM_SETTINGS)
     return datetime.now(KST)
 
 
@@ -865,6 +869,7 @@ def _normalize_character_config(raw_characters):
                 raw.get("wake_range"),
                 ((8, 0), (10, 0)),
             ),
+            "weekly_schedule": raw.get("weekly_schedule", []),
             "inventory": [
                 str(item)
                 for item in raw.get("inventory", [])
@@ -2371,6 +2376,8 @@ def _load_generic_world_config():
     CUSTOM_SETTINGS = _load_json_file(CONFIG_SETTINGS_PATH, {})
     raw_places = _load_json_file(CONFIG_PLACES_PATH, {})
     CONFIG_RELATIONSHIPS = _load_json_file(CONFIG_RELATIONS_PATH, {})
+    validate_features(CUSTOM_SETTINGS)
+    validate_calendar(CUSTOM_SETTINGS, CHARACTERS, raw_places)
 
     if not isinstance(raw_places, dict) or not raw_places:
         raise RuntimeError(
@@ -2449,6 +2456,7 @@ def _load_generic_world_config():
                 or f"{place}."
             ),
             **{k: raw.get(k, {} if k in ("seats", "menus") else False if k in ("nap_allowed", "outdoor") else []) for k in ("seats", "menus", "nap_allowed", "outdoor", "activities")},
+            "opening_hours": raw.get("opening_hours", {}),
             "objects": [
                 str(item)
                 for item in raw.get("objects", [])
@@ -2542,6 +2550,7 @@ def _load_generic_world_config():
 
 
 _load_generic_world_config()
+_world_clock = WorldClock(DATA_DIR)
 
 # ============================================================
 # v62 기능 ON/OFF 설정
@@ -2751,7 +2760,8 @@ def load_character_prompt(character):
     # 일상, 외형, 인게임 대사 참고 등을 중심으로 남기면 된다.
     outfit = config.get("current_outfit") or config.get("default_outfit")
     scope = _generation_scope.get() or CURRENT_LOG_SCOPE.get() or "world"
-    return policy_prompt(CUSTOM_SETTINGS, config, scope) + "\n\n" + _generation_feedback.get() + "\n" + character_prompt + (
+    calendar_context = world_context(CUSTOM_SETTINGS, now_kst(), config, character) if scope == 'world' and globals().get('_world_clock') else ''
+    return calendar_context + "\n" + policy_prompt(CUSTOM_SETTINGS, config, scope) + "\n\n" + _generation_feedback.get() + "\n" + character_prompt + (
         "\n\n[복장]\n현재 참고할 복장: " + (outfit or "미지정")
         + "\n현재 복장이 지정되면 기본 복장보다 우선한다. 복장은 장면에 필요할 때만 묘사한다. "
         "지정되지 않은 옷·신발·장신구를 임의로 추가하지 않는다."
@@ -3225,6 +3235,8 @@ def ensure_daily_weather():
         elif weather == "쌀쌀함":
             temperature -= random.randint(2, 5)
 
+        if feature_enabled("seasonal_weather"):
+            weather, temperature = seasonal_weather(CUSTOM_SETTINGS, now_kst())
         daily_world["weather"] = weather
         daily_world["temperature"] = temperature
         log_message(
@@ -3907,6 +3919,9 @@ def get_city_event_status_text():
 
 def get_world_season(now=None):
     now = now or now_kst()
+    if feature_enabled("world_calendar"):
+        name = season_profile(CUSTOM_SETTINGS, now)[0]
+        return {"봄":"spring", "여름":"summer", "가을":"autumn", "겨울":"winter"}.get(name, name)
     month = now.month
     if month in (3, 4, 5):
         return "spring"
@@ -6652,6 +6667,10 @@ def choose_activity(
     if character_state[character]["away"]:
         current_activity[character] = "외출 중"
         return "외출 중"
+    entry = weekly_entry(CUSTOM_SETTINGS, config, now_kst(), place)
+    if entry and not get_movement_busy_reason(character, clients.get(character)):
+        current_activity[character] = entry['activity']
+        return entry['activity']
 
     life_context = get_character_context(character)
 
@@ -7270,7 +7289,7 @@ async def autonomous_message_loop(
             '분',
         )
 
-        _monitor.characters.setdefault(character,{})['next_check'] = now_kst().timestamp()+wait_seconds
+        _monitor.characters.setdefault(character,{})['next_check'] = datetime.now(timezone.utc).timestamp()+wait_seconds
         await asyncio.sleep(
             wait_seconds
         )
@@ -7723,6 +7742,10 @@ def choose_place(
             * need_multiplier
         )
 
+        entry = weekly_entry(CUSTOM_SETTINGS, CHARACTERS[character], now_kst())
+        if entry and entry.get('place') == place:
+            final_weight *= 6
+
         if final_weight <= 0:
             continue
 
@@ -7734,6 +7757,8 @@ def choose_place(
             final_weight
         )
 
+    if not candidates:
+        return current_place.get(character)
     selected = random.choices(
         candidates,
         weights=weights,
@@ -7773,6 +7798,8 @@ def can_enter_place(
     character,
     place
 ):
+    if not place_open(CUSTOM_SETTINGS, PLACE_INFO.get(place, {}), now_kst()):
+        return False
     # 캐릭터별 고정 출입 제한.
     # 가중치가 0이어도 대화/약속 등 다른 이동 경로가 있을 수 있으므로
     # 실제 입장 단계에서도 한 번 더 막는다.
@@ -8250,6 +8277,10 @@ def choose_weighted_destination(
             final_weight *= 2.2
         if ("저녁 루틴" in routine or "늦은 밤 루틴" in routine) and place == own_room:
             final_weight *= 3.5
+
+        entry = weekly_entry(CUSTOM_SETTINGS, CHARACTERS[character], now_kst())
+        if entry and entry.get('place') == place:
+            final_weight *= 6
 
         if final_weight <= 0:
             continue
@@ -9168,6 +9199,11 @@ def build_world_status_embed():
         "late_night": "새벽",
     }
     embed = discord.Embed(title="🌍 현재 환경")
+    for label,value in calendar_display(CUSTOM_SETTINGS, now_kst()).items():
+        embed.add_field(name=label, value=value, inline=True)
+    events = visible_events(CUSTOM_SETTINGS, now_kst(), public_only=True)
+    if events:
+        embed.add_field(name="오늘의 공개 기념일·행사", value="\n".join(e['name'] for e in events)[:1024], inline=False)
     embed.add_field(
         name="🌦️ 날씨",
         value=daily_world["weather"],
@@ -9240,13 +9276,13 @@ def build_character_status_embed(character):
     )
     embed.add_field(
         name="🛏️ 수면시간",
-        value=f"<t:{sleep_ts}:t> ~ <t:{wake_ts}:t>",
+        value=(f"{sleep_dt:%H:%M} ~ {wake_dt:%H:%M}" if feature_enabled("world_calendar") and CUSTOM_SETTINGS.get("calendar",{}).get("mode")=="virtual" else f"<t:{sleep_ts}:t> ~ <t:{wake_ts}:t>"),
         inline=False,
     )
     if state["sleeping"]:
         embed.add_field(
             name="⏰ 기상까지",
-            value=f"<t:{wake_ts}:R>",
+            value=(f"약 {max(0, int((wake_dt-now_kst()).total_seconds()/60))}분" if feature_enabled("world_calendar") and CUSTOM_SETTINGS.get("calendar",{}).get("mode")=="virtual" else f"<t:{wake_ts}:R>"),
             inline=False,
         )
     embed.set_footer(text="상태가 바뀌면 이 메시지가 자동으로 갱신됩니다.")
@@ -11921,7 +11957,7 @@ def create_client(character):
         if not personal_rp_mode and not is_dm and _life.record(character).get('nap'):
             character_state[character]['sleeping']=False
             place=current_place.get(character)
-            current_activity[character]=_life.tick(character,place,PLACE_INFO.get(place,{}),character_state[character],current_activity.get(character,''),CUSTOM_SETTINGS,now_kst().timestamp(),now_kst().hour,busy=True)
+            current_activity[character]=_life.tick(character,place,PLACE_INFO.get(place,{}),character_state[character],current_activity.get(character,''),CUSTOM_SETTINGS,datetime.now(timezone.utc).timestamp(),now_kst().hour,busy=True)
             _life.save()
 
         # 자는 동안 사용자가 직접 불렀을 때,
@@ -12483,14 +12519,27 @@ async def life_state_loop(character):
             state['outfit_set'] = bool(CHARACTERS[character].get('current_outfit') or CHARACTERS[character].get('default_outfit'))
             stage_channel=find_place_channel(client,place)
             in_stage_event=bool(stage_channel and dynamic_event_channels.get(stage_channel.id,False))
+            scheduled_sleep = feature_enabled('sleep_system') and is_sleep_time(character)
+            stage_busy = in_stage_event or bool(movement_defer_until.get(character) and datetime.now() < movement_defer_until[character]) or bool(_life_appointment_due(character))
+            destination = scheduled_destination(CUSTOM_SETTINGS, CHARACTERS[character], now_kst(), place,
+                lambda target: can_enter_place(character, target),
+                busy=stage_busy or bool(get_movement_busy_reason(character, client)) or scheduled_sleep,
+                hungry=feature_enabled('meal_stages') and state.get('hunger',0)>=55)
+            if destination:
+                current_place[character] = destination
+                r.pop('seat', None)
+                current_activity[character] = choose_activity(character, destination)
+                log_message(CHARACTERS[character]['name'], '요일 일정으로 이동:', place, '→', destination)
+                place = destination
             # Nap recovery is handled only once by LifeEngine, not by night-sleep recovery.
             current_activity[character] = _life.tick(
                 character, place, PLACE_INFO.get(place, {}), state,
-                current_activity.get(character, ''), CUSTOM_SETTINGS, now_kst().timestamp(),
+                current_activity.get(character, ''), CUSTOM_SETTINGS, datetime.now(timezone.utc).timestamp(),
                 now_kst().hour, str(ensure_daily_weather()),
-                busy=in_stage_event or bool(movement_defer_until.get(character) and datetime.now() < movement_defer_until[character]) or bool(_life_appointment_due(character)),
-                scheduled_sleep=feature_enabled("sleep_system") and is_sleep_time(character))
-            if r.get('finished_meal_at') and now_kst().timestamp()-r['finished_meal_at']>=300 and not get_movement_busy_reason(character, client):
+                busy=stage_busy or not place_open(CUSTOM_SETTINGS, PLACE_INFO.get(place,{}), now_kst()),
+                scheduled_sleep=scheduled_sleep,
+                scheduled_activity=(weekly_entry(CUSTOM_SETTINGS, CHARACTERS[character], now_kst(), place) or {}).get("activity", ""))
+            if r.get('finished_meal_at') and datetime.now(timezone.utc).timestamp()-r['finished_meal_at']>=300 and not stage_busy and not scheduled_sleep and not get_movement_busy_reason(character, client):
                 if feature_enabled('place_movement'):
                     destination=choose_weighted_destination(character)
                     if destination:
@@ -12499,6 +12548,14 @@ async def life_state_loop(character):
                         current_activity[character]=choose_activity(character,destination)
                         log_message(CHARACTERS[character]['name'],'식사 후 이동:',place,'→',destination)
                 else: r.pop('finished_meal_at',None)
+            if feature_enabled('opening_hours') and feature_enabled('place_movement') and not place_open(CUSTOM_SETTINGS, PLACE_INFO.get(current_place.get(character), {}), now_kst()) and not stage_busy and not scheduled_sleep and not get_movement_busy_reason(character, client):
+                old = current_place.get(character)
+                destination = choose_weighted_destination(character)
+                if destination:
+                    current_place[character] = destination
+                    r.pop('seat', None)
+                    current_activity[character] = choose_activity(character, destination)
+                    log_message(CHARACTERS[character]['name'], '영업 종료 후 이동:', old, '→', destination)
             _life.save()
             cleanup_appointments()
             cleanup_room_invitations()
@@ -12789,6 +12846,9 @@ async def desktop_monitor_loop(main_task):
                          cooldown=str(autonomous_character_cooldown_until.get(_autonomous_history_key(key)) or '대기 없음'),
                          paused=autonomous_global_paused or key in autonomous_paused_characters,
                          movement_reason=get_movement_busy_reason(key, client))
+        _monitor.environment = dict(calendar_display(CUSTOM_SETTINGS, now_kst()), 날씨=ensure_daily_weather(), 기온=f'{get_world_temperature()}°C')
+        events = visible_events(CUSTOM_SETTINGS, now_kst(), public_only=True)
+        if events: _monitor.environment['오늘의 공개 기념일·행사'] = ', '.join(e['name'] for e in events)
         _monitor.flush()
         stop_file = DATA_DIR / 'desktop_stop.request'
         if stop_file.exists():
@@ -12963,7 +13023,7 @@ async def main():
                 not GENERIC_CONFIG_ACTIVE
                 or (
                     feature_enabled("world_simulation")
-                    and (feature_enabled("sleep_system") or any(feature_enabled(k) for k in ("seating", "meal_stages", "naps", "activity_stages", "outfit_condition")))
+                    and (feature_enabled("sleep_system") or any(feature_enabled(k) for k in ("seating", "meal_stages", "naps", "activity_stages", "outfit_condition", "weekly_schedules", "opening_hours")))
                 )
             ):
                 background_tasks.append(

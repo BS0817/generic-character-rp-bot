@@ -25,6 +25,8 @@ SETTINGS_PATH = CONFIG_DIR / "settings.json"
 RELATIONS_PATH = CONFIG_DIR / "relations.json"
 
 from rp_policy import FEATURES
+from world_calendar import validate_calendar
+from feature_dependencies import validate_features, dependency_errors, toggle_changes, LABELS as FEATURE_LABELS
 
 FEATURE_QUESTIONS = [
     ("world_simulation", "본서버 월드 시뮬레이션", True),
@@ -163,6 +165,9 @@ def load_json(path, default):
 
 
 def save_json(path, data):
+    if path == SETTINGS_PATH:
+        validate_features(data)
+        validate_calendar(data,load_json(CHARACTERS_PATH,{}),load_json(PLACES_PATH,{}))
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -540,6 +545,13 @@ def edit_features(settings):
         )
 
     settings["features"] = features
+    while dependency_errors(settings):
+        child,parent=dependency_errors(settings)[0]
+        print(f"{FEATURE_LABELS.get(child,child)}에는 {FEATURE_LABELS.get(parent,parent)}이 필요합니다.")
+        if ask_yes_no('필수 기능도 함께 켤까요? (아니오: 종속 기능 끄기)',True):
+            features.update(toggle_changes(settings,child,True))
+        else: features.update(toggle_changes(settings,parent,False))
+    validate_features(settings)
 
     channel_setup = dict(settings.get("channel_setup", {}))
     channel_setup["create_categories"] = ask_yes_no(

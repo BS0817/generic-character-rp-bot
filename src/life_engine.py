@@ -37,7 +37,7 @@ class LifeEngine:
             if used<int(capacity): r['seat']=name; return name
         return ''
 
-    def tick(self,key,place,definition,state,activity,settings,now,hour,weather='',busy=False,scheduled_sleep=False):
+    def tick(self,key,place,definition,state,activity,settings,now,hour,weather='',busy=False,scheduled_sleep=False,scheduled_activity=''):
         self.definitions[place]=definition
         r=self.record(key); elapsed=max(0,min(10,(now-r.get('tick',now))/60)); r['tick']=now
         if r.get('place')!=place:
@@ -107,6 +107,11 @@ class LifeEngine:
                 r.pop('task',None); r['last_task']=now; return f"{task['name']} 마친 뒤 쉬는 중"
             if phase==1 and any(w in task['name'] for w in ('훈련','운동')): state['fatigue']=min(100,state['fatigue']+elapsed*.4)
             return f"{task['name']} {('준비','진행','마무리')[phase]} 중"
+        if scheduled_activity and not busy and not scheduled_sleep:
+            r['scheduled_activity']=scheduled_activity
+            return scheduled_activity
+        previous=r.pop('scheduled_activity',None)
+        if previous and activity==previous: activity='일정 후 쉬는 중'
         if enabled(settings,'activity_stages') and not busy and not r.get('finished_meal_at') and definition.get('activities') and now-r.get('last_task',0)>=3600:
             r['task']={'name':self.rng.choice(definition['activities']),'start':now}
             return f"{r['task']['name']} 준비 중"
