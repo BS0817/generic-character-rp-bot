@@ -286,7 +286,7 @@ class GuiTests(unittest.TestCase):
         self.window.nav.setCurrentRow(3);self.window.stack.currentWidget().findChild(QLineEdit).setText('달력 세계')
         self.window.nav.setCurrentRow(0);self.window.nav.setCurrentRow(10)
         self.assertEqual(name.text(),'저장할 생일');self.window.save_all()
-        saved=json.loads((self.root/'config/settings.json').read_text())
+        saved=json.loads((self.root/'config/settings.json').read_text(encoding='utf-8'))
         self.assertEqual(saved['calendar_events']['test_event']['name'],'저장할 생일');self.assertEqual(saved['world_name'],'달력 세계')
         self.assertIn('season_profiles',saved['calendar'])
 
@@ -319,7 +319,7 @@ class GuiTests(unittest.TestCase):
             self.window.run_bot();launch.assert_not_called();self.assertTrue(self.window.dirty)
             dialog.addButton.side_effect=[save,cancel];dialog.clickedButton.return_value=save
             def assert_saved(*args,**kwargs):
-                self.assertEqual(json.loads((self.root/'config/settings.json').read_text())['world_name'],'실행할 세계')
+                self.assertEqual(json.loads((self.root/'config/settings.json').read_text(encoding='utf-8'))['world_name'],'실행할 세계')
                 self.assertFalse(self.window.dirty)
                 return Mock()
             launch.side_effect=assert_saved;self.window.run_bot();launch.assert_called_once()
