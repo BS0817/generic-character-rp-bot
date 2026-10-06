@@ -155,11 +155,11 @@ class GuiTests(unittest.TestCase):
         selector.setCurrentIndex(1);selector.setCurrentIndex(0)
         self.assertEqual(edit.toPlainText(),'유지할 말투 초안')
         self.assertTrue(self.window.dirty)
-        saved=json.loads((self.root/'config/characters.json').read_text())
+        saved=json.loads((self.root/'config/characters.json').read_text(encoding='utf-8'))
         self.assertNotEqual(saved['Alice']['prompt_guide']['speech'],'유지할 말투 초안')
         self.window.save_all()
-        self.assertEqual(json.loads((self.root/'config/characters.json').read_text())['Alice']['prompt_guide']['speech'],'유지할 말투 초안')
-        self.assertEqual(json.loads((self.root/'config/settings.json').read_text())['world_name'],'세계 초안')
+        self.assertEqual(json.loads((self.root/'config/characters.json').read_text(encoding='utf-8'))['Alice']['prompt_guide']['speech'],'유지할 말투 초안')
+        self.assertEqual(json.loads((self.root/'config/settings.json').read_text(encoding='utf-8'))['world_name'],'세계 초안')
 
     def test_bad_json_prevents_all_writes_and_keeps_drafts(self):
         from PySide6.QtWidgets import QPlainTextEdit
@@ -175,7 +175,7 @@ class GuiTests(unittest.TestCase):
         self.assertTrue(self.window.dirty)
         seats.setPlainText('{"테이블": 4}')
         self.window.save_all()
-        self.assertEqual(json.loads((self.root/'config/settings.json').read_text())['world_name'],'저장되면 안 됨')
+        self.assertEqual(json.loads((self.root/'config/settings.json').read_text(encoding='utf-8'))['world_name'],'저장되면 안 됨')
 
     def test_relation_pair_drafts_are_independent(self):
         from PySide6.QtWidgets import QComboBox,QPlainTextEdit
@@ -185,7 +185,7 @@ class GuiTests(unittest.TestCase):
         editor.setPlainText('두 번째 관계 초안');second.setCurrentIndex(1)
         self.assertEqual(editor.toPlainText(),'첫 번째 관계 초안')
         self.window.save_all()
-        saved=json.loads((self.root/'config/relations.json').read_text())
+        saved=json.loads((self.root/'config/relations.json').read_text(encoding='utf-8'))
         self.assertEqual(saved['Alice|Saya']['context'],'첫 번째 관계 초안')
         self.assertEqual(saved['Alice|Yuri']['context'],'두 번째 관계 초안')
 
@@ -210,12 +210,12 @@ class GuiTests(unittest.TestCase):
         with patch.object(QMessageBox,'exec',choose('저장 후 종료')):
             event=QCloseEvent();self.window.closeEvent(event)
         self.assertTrue(event.isAccepted());self.assertFalse(self.window.dirty)
-        self.assertEqual(json.loads((self.root/'config/settings.json').read_text())['world_name'],'종료 시 저장')
+        self.assertEqual(json.loads((self.root/'config/settings.json').read_text(encoding='utf-8'))['world_name'],'종료 시 저장')
         edit.setText('버릴 수정')
         with patch.object(QMessageBox,'exec',choose('저장하지 않고 종료')):
             event=QCloseEvent();self.window.closeEvent(event)
         self.assertTrue(event.isAccepted())
-        self.assertEqual(json.loads((self.root/'config/settings.json').read_text())['world_name'],'종료 시 저장')
+        self.assertEqual(json.loads((self.root/'config/settings.json').read_text(encoding='utf-8'))['world_name'],'종료 시 저장')
 
     def test_checkbox_help_and_long_fields(self):
         from setup_gui import ResizableTextEdit
@@ -258,7 +258,7 @@ class GuiTests(unittest.TestCase):
         self.window.refresh()
         self.assertFalse(self.window.stack.currentWidget().findChild(QCheckBox).isChecked())
         self.window.save_all()
-        self.assertFalse(json.loads((self.root/'desktop_settings.json').read_text())['check_updates_on_start'])
+        self.assertFalse(json.loads((self.root/'desktop_settings.json').read_text(encoding='utf-8'))['check_updates_on_start'])
 
     def test_category_and_world_drafts_save_without_overwriting_each_other(self):
         from unittest.mock import patch
@@ -267,8 +267,8 @@ class GuiTests(unittest.TestCase):
         self.window.nav.setCurrentRow(8)
         with patch('setup_gui.QInputDialog.getText',side_effect=[('hotel',True),('호텔',True)]):
             next(b for b in self.window.stack.currentWidget().findChildren(QPushButton) if b.text()=='추가').click()
-        self.assertNotIn('hotel',json.loads((self.root/'config/settings.json').read_text())['channel_setup']['category_names'])
+        self.assertNotIn('hotel',json.loads((self.root/'config/settings.json').read_text(encoding='utf-8'))['channel_setup']['category_names'])
         self.window.save_all()
-        saved=json.loads((self.root/'config/settings.json').read_text())
+        saved=json.loads((self.root/'config/settings.json').read_text(encoding='utf-8'))
         self.assertEqual(saved['world_name'],'새 세계')
         self.assertEqual(saved['channel_setup']['category_names']['hotel'],'호텔')
