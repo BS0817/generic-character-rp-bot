@@ -3,39 +3,101 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Generic Character RP Bot</title>
-<style>body{font-family:system-ui,sans-serif;max-width:920px;margin:0 auto;padding:64px 24px;line-height:1.7}h1{font-size:2.5rem}a.button{display:inline-block;padding:12px 18px;border:1px solid currentColor;border-radius:10px;text-decoration:none;margin-right:8px}code{background:#eee;padding:2px 6px;border-radius:5px}@media(prefers-color-scheme:dark){body{background:#0d1117;color:#e6edf3}code{background:#161b22}}</style>
+<meta name="description" content="RPBot 공식 안내: 나만의 캐릭터와 세계를 만들고 Discord에서 대화와 생활 시뮬레이션을 즐겨보세요.">
+<title>RPBot — 공식 안내 페이지</title>
+<style>
+:root{color-scheme:light dark;--bg:#f8fafc;--card:#fff;--text:#172033;--muted:#526078;--line:#dce3ee;--accent:#4f46e5}
+*{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);max-width:1040px;margin:0 auto;padding:48px 24px;line-height:1.8}h1{font-size:clamp(2rem,6vw,3rem);line-height:1.25;margin:12px 0}h2{margin-top:40px}h3{margin-top:0}a{color:var(--accent)}.intro{max-width:760px;color:var(--muted)}.buttons{display:flex;flex-wrap:wrap;gap:10px;margin:24px 0}.button{display:inline-flex;align-items:center;padding:10px 16px;border:1px solid var(--line);border-radius:10px;text-decoration:none;background:var(--card);font-weight:600}.primary{background:var(--accent);color:white;border-color:var(--accent)}.donate{border-color:var(--accent)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}.card{background:var(--card);border:1px solid var(--line);padding:22px;border-radius:14px}.card ul{padding-left:20px;margin-bottom:0}.note,footer{color:var(--muted)}code{background:var(--card);padding:2px 6px;border:1px solid var(--line);border-radius:5px}a:focus-visible{outline:3px solid var(--accent);outline-offset:4px}footer{margin-top:40px;border-top:1px solid var(--line);padding-top:24px}@media(prefers-color-scheme:dark){:root{--bg:#0d1117;--card:#161b22;--text:#e6edf3;--muted:#a7b4c7;--line:#303b4c;--accent:#a5a0ff}.primary{color:#17132f}}@media(max-width:480px){body{padding:30px 18px}.button{width:100%;justify-content:center}}
+</style>
 </head>
 <body>
-<h1>Generic Character RP Bot</h1>
-<p>캐릭터, 장소, 세계관을 직접 정의할 수 있는 멀티 캐릭터 Discord RP 봇 프레임워크입니다.</p>
-<p><a class="button" href="https://github.com/BS0817/generic-character-rp-bot/releases">Windows 다운로드</a><a class="button" href="guide_ko.html">초보자 설치 가이드</a><a class="button" href="railway_ko.html">Railway 24시간 클라우드 가이드</a><a class="button" href="https://github.com/BS0817/generic-character-rp-bot">GitHub 저장소</a></p>
-<h2>주요 기능</h2>
+<header>
+<p class="note">Generic Character RP Bot · v0.1.7</p>
+<h1>나만의 캐릭터와 세계를<br>Discord에서 만나보세요.</h1>
+<p class="intro">RPBot은 캐릭터의 성격과 말투, 장소, 세계관을 직접 설정하는 멀티 캐릭터 RP 봇입니다. 사용자와 대화하고 기억을 쌓으며, 선택한 기능에 따라 이동·식사·수면 같은 생활을 이어갑니다.</p>
+<nav class="buttons" aria-label="다운로드와 안내">
+<a class="button primary" href="https://github.com/BS0817/generic-character-rp-bot/releases/latest">Windows 다운로드</a>
+<a class="button" href="guide_ko.html">초보자 설치 가이드</a>
+<a class="button" href="railway_ko.html">Railway 운영 가이드</a>
+<a class="button" href="https://github.com/BS0817/generic-character-rp-bot">GitHub 저장소</a>
+<a class="button donate" href="https://toon.at/donate/bs817">투네이션으로 후원하기</a>
+</nav>
+</header>
+<main>
+<section aria-labelledby="features"><h2 id="features">어떤 기능이 있나요?</h2>
+<div class="grid">
+<article class="card"><h3>캐릭터와 대화</h3><ul>
+<li>여러 캐릭터 봇을 동시에 운영</li>
+<li>성격·말투·중요 설정을 작성하는 프롬프트 가이드</li>
+<li>세계 규칙과 별도의 공통 대화 규칙, 반복 발언 억제</li>
+<li>현장 역할극·메신저 대화 방식 선택</li>
+<li>복장 취향과 기본·현재 복장 설정</li>
+<li>사용자·캐릭터 관계와 장기 기억</li>
+</ul></article>
+<article class="card"><h3>장소와 생활</h3><ul>
+<li>장소·개인실·카테고리, 방문 선호도와 출입 설정</li>
+<li>자동 이동·수면·기상·외출·약속</li>
+<li>좌석 정원과 동석자, 장소별 메뉴와 단계별 식사</li>
+<li>낮잠·수면 품질, 훈련 등 단계별 활동</li>
+<li>물건 대여·반환 기록과 복장 젖음·건조</li>
+<li>날씨·기온과 환경 상태 표시</li>
+</ul></article>
+<article class="card"><h3>달력과 일정</h3><ul>
+<li>현실 날짜 또는 지정한 가상 날짜로 세계 운영</li>
+<li>날짜·요일·계절 표시와 계절별 날씨</li>
+<li>캐릭터의 요일별 활동 일정</li>
+<li>장소의 영업 요일·시간</li>
+<li>생일·결혼기념일·커플 100일·일회성 행사</li>
+<li>기념일의 공개 여부와 아는 캐릭터 지정</li>
+</ul></article>
+<article class="card"><h3>PC에서 설정하고 관리</h3><ul>
+<li>한국어 셋업 창에서 캐릭터·장소·관계 편집</li>
+<li>탭을 바꿔도 입력 유지, 전체 저장과 저장 후 실행</li>
+<li>기능별 켜기·끄기와 필요한 관련 기능 안내</li>
+<li>연결·장소·활동·기분·허기·피로·좌석 모니터링</li>
+<li>최근 대화·오류·생성 결과 확인과 기억 조회·삭제</li>
+<li>설정 백업·복원과 정식 버전 업데이트</li>
+</ul></article>
+</div>
+<p class="note">새 생활 확장 기능은 기본적으로 꺼져 있습니다. 필요한 기능을 켜고 캐릭터와 장소를 설정하세요. 개인 RP와 DM은 월드와 분리된 대화 범위를 사용할 수 있습니다.</p>
+</section>
+<section aria-labelledby="players"><h2 id="players">대화하는 사용자는 무엇을 할 수 있나요?</h2>
 <ul>
-  <li>여러 Discord 캐릭터 봇을 하나의 프로그램에서 동시에 실행</li>
-  <li>캐릭터별 성격, 말투, 생활 습관, 목표, 소지품, 개인실 설정</li>
-  <li>장소별 Discord 채널과 캐릭터별 방문 선호도 설정</li>
-  <li>수면, 기상, 외출, 약속, 장소 자동 이동</li>
-  <li>캐릭터의 자율 발언과 캐릭터끼리의 대화</li>
-  <li>사용자 및 캐릭터 사이의 관계와 장기 기억</li>
-  <li>본서버, 개인 RP 서버, DM의 상태를 서로 분리</li>
-  <li>봇이 꺼져 있던 동안 받은 사용자 멘션과 답글 복구</li>
-  <li>세계관 시간대와 주요 기능별 ON/OFF 설정</li>
-  <li><code>/서버초기화</code>를 통한 장소 및 개인실 채널 자동 생성</li>
+<li>캐릭터를 <strong>@멘션</strong>하거나 메시지에 답장해 대화하기</li>
+<li>운영자가 허용한 개인 RP·공동 RP·DM에서 별도의 장면 이어가기</li>
+<li>대화 범위에 맞는 프로필과 캐릭터와의 관계 설정하기</li>
+<li>대화와 사건을 통해 기억과 관계 쌓기</li>
+<li>같은 장소의 캐릭터들이 나누는 대화와 생활 지켜보기</li>
+<li><code>/관계설정</code>, <code>/관계보기</code>, <code>/관계초기화</code>로 자신의 관계 관리하기</li>
+<li><code>/기능설정보기</code>로 활성화된 기능 확인하기</li>
 </ul>
-
-<h2>사용자는 봇에게 무엇을 할 수 있나요?</h2>
+<p class="note">이용 가능한 대화 범위와 명령어는 운영자의 설정·허용 사용자·채널 권한에 따라 달라집니다.</p>
+</section>
+<section aria-labelledby="owners"><h2 id="owners">운영자는 무엇을 할 수 있나요?</h2>
 <ul>
-  <li>캐릭터를 <strong>@멘션</strong>해서 직접 대화하기</li>
-  <li>캐릭터와 <strong>DM</strong>으로 별도의 대화 이어가기</li>
-  <li>개인 RP 서버에서 본서버와 분리된 관계와 상황으로 역할극하기</li>
-  <li>대화를 통해 캐릭터와 관계와 기억을 장기적으로 쌓기</li>
-  <li>같은 장소에 있는 캐릭터들의 자율 대화와 생활을 지켜보기</li>
-  <li><code>/기능설정보기</code>로 현재 활성화된 기능 확인하기</li>
-  <li><code>/서버초기화</code>로 설정된 장소와 개인실 채널 준비하기</li>
+<li>자신의 캐릭터와 세계관을 만들고 캐릭터별 Discord 봇 연결하기</li>
+<li>장소·좌석·메뉴·개인실·초기 관계·생활 일정을 구성하기</li>
+<li>공통 규칙과 캐릭터별 프롬프트로 말투·행동의 기준 정하기</li>
+<li>세계 달력과 기념일을 설정하고 필요한 생활 기능 선택하기</li>
+<li>PC 관리 창에서 봇을 실행·정지하고 현재 상태와 기록 확인하기</li>
+<li>관리 권한으로 <code>/서버초기화</code>를 실행해 설정된 카테고리·장소 채널 준비하기</li>
 </ul>
-<h2>설치</h2>
-<p>Releases에서 Windows ZIP을 받은 뒤 <code>RPBot_Setup.exe</code>를 먼저 실행하고, 설정이 끝나면 <code>RPBot.exe</code>를 실행합니다.</p>
-<p>초기 공개 버전이며 기능과 설치 경험을 계속 개선하고 있습니다.</p>
+</section>
+<section aria-labelledby="start"><h2 id="start">시작하는 방법</h2>
+<ol>
+<li>Windows ZIP을 다운로드하고 전체 압축을 풉니다.</li>
+<li><code>RPBot_Setup.exe</code>에서 OpenAI API 키와 Discord 연결 정보를 설정합니다.</li>
+<li>예시를 참고해 <strong>캐릭터 추가</strong>로 자신의 캐릭터를 만들고 장소·프롬프트·관계를 설정합니다.</li>
+<li>전체 저장 후 봇 실행을 누르거나 <code>RPBot.exe</code>를 실행합니다.</li>
+</ol>
+<p>Windows 배포판은 Python 설치 없이 사용할 수 있습니다. PC 운영은 실행 중인 컴퓨터가 필요하며, 클라우드 운영은 Railway 가이드를 참고하세요. OpenAI API 사용료와 클라우드 요금은 별도로 발생할 수 있습니다.</p>
+<p>기존 사용자는 봇을 종료한 뒤 셋업의 업데이트 메뉴를 이용하세요. 수동 업데이트는 실행 파일 세 개만 교체하고 기존 설정·프롬프트·키·대화 데이터를 유지하세요.</p>
+</section>
+<section class="card" aria-labelledby="support"><h2 id="support" style="margin-top:0">RPBot 개발 응원하기</h2>
+<p>RPBot 개발을 응원하고 싶다면 투네이션으로 후원해 주세요.</p>
+<a class="button donate" href="https://toon.at/donate/bs817">투네이션으로 후원하기</a>
+</section>
+</main>
+<footer>RPBot 공식 안내 페이지 · 자세한 변경사항과 소스는 <a href="https://github.com/BS0817/generic-character-rp-bot">GitHub 저장소</a>에서 확인하세요.</footer>
 </body>
 </html>
