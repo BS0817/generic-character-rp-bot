@@ -1,5 +1,7 @@
 .env
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 logs/
@@ -30,3 +32,5 @@ desktop_startup.log
 life_extensions.json
 
 world_clock.json
+
+diagnostics/

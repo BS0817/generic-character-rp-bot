@@ -56,7 +56,7 @@ jobs:
           Copy-Item dist/RPBot_Updater.exe release/RPBot_Updater.exe
           Copy-Item README.md release/README_KO.md
           New-Item -ItemType Directory -Force -Path release/docs
-          Copy-Item docs/example_characters_ko.md release/docs/example_characters_ko.md
+          Copy-Item docs/*.md release/docs
           Copy-Item config release/config -Recurse
           Copy-Item prompts release/prompts -Recurse
           Compress-Archive -Path release/* -DestinationPath Generic-Character-RP-Bot-Windows.zip

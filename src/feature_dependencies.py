@@ -2,6 +2,22 @@
 from rp_policy import FEATURES, enabled
 
 DEPENDENCIES = {
+    'life_statistics': ('world_simulation',),
+    'inner_thoughts': ('world_simulation',),
+    'world_requests': ('user_world_actions',),
+    'lost_found': ('user_world_actions',),
+    'wake_calls': ('actual_sleep',),
+    'weekend_rest': ('actual_sleep','world_calendar'),
+    'actual_sleep': ('sleep_system',),
+    'morning_routine': ('actual_sleep',),
+    'outfit_schedule': ('morning_routine',),
+    'user_world_actions': ('world_simulation',),
+    'food_stock': ('user_world_actions', 'meal_stages'),
+    'ingredient_stock': ('food_stock',),
+    'dishwashing': ('food_stock',),
+    'object_states': ('user_world_actions',),
+    'group_leisure': ('user_world_actions', 'seating'),
+
     'place_movement': ('world_simulation',),
     'sleep_system': ('world_simulation',),
     'away_system': ('world_simulation',),

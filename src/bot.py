@@ -15,12 +15,14 @@ from pathlib import Path
 from collections import defaultdict, deque
 from rp_policy import FEATURES, policy_prompt, dialogue_reason, relationship_reason, completed_transfer
 from life_engine import LifeEngine
+from world_actions import WorldActions, validate_extensions
 from feature_dependencies import validate_features
 from world_calendar import WorldClock, validate_calendar, calendar_display, seasonal_weather, season_profile, place_open, weekly_entry, world_context, visible_events, scheduled_destination
 import functools
 import inspect
 from dotenv import load_dotenv
-from openai import OpenAI
+from model_client import ModelClient, GENERATION_PRIORITY
+from operations import diagnose
 
 import sqlite3
 from datetime import datetime, timezone, timedelta, time
@@ -189,7 +191,7 @@ OPENAI_API_KEY = os.getenv(
     "OPENAI_API_KEY"
 )
 
-openai_client = OpenAI(
+openai_client = ModelClient(
     api_key=OPENAI_API_KEY
 )
 
@@ -870,6 +872,7 @@ def _normalize_character_config(raw_characters):
                 ((8, 0), (10, 0)),
             ),
             "weekly_schedule": raw.get("weekly_schedule", []),
+            **{k: raw.get(k, d) for k,d in [('required_sleep_hours',8),('sleep_recovery_per_hour',7),('sleep_outfit',''),('day_outfits',[]),('weekend_extra_sleep_hours',1),('wake_acceptance',.65),('grooming_place','')]},
             "inventory": [
                 str(item)
                 for item in raw.get("inventory", [])
@@ -2456,7 +2459,9 @@ def _load_generic_world_config():
                 or f"{place}."
             ),
             **{k: raw.get(k, {} if k in ("seats", "menus") else False if k in ("nap_allowed", "outdoor") else []) for k in ("seats", "menus", "nap_allowed", "outdoor", "activities")},
+            "routine_capacity": raw.get("routine_capacity",0),
             "opening_hours": raw.get("opening_hours", {}),
+            **{k: raw.get(k,{}) for k in ('food_definitions','object_states','leisure')},
             "objects": [
                 str(item)
                 for item in raw.get("objects", [])
@@ -2759,9 +2764,12 @@ def load_character_prompt(character):
     # 캐릭터 파일에는 앞으로 해당 캐릭터만의 정체, 성격, 말투, 관계,
     # 일상, 외형, 인게임 대사 참고 등을 중심으로 남기면 된다.
     outfit = config.get("current_outfit") or config.get("default_outfit")
+    if globals().get('_life') and (_generation_scope.get() or CURRENT_LOG_SCOPE.get() or 'world') == 'world':
+        outfit = _life.outfit(character,config,CUSTOM_SETTINGS,character_state[character].get('sleeping'),str(ensure_daily_weather()))
     scope = _generation_scope.get() or CURRENT_LOG_SCOPE.get() or "world"
+    thought_rule='\n[관리자 전용 속마음]\n발언 뒤 별도 한 줄에 THOUGHT|현재 자신의 속마음을 짧게 기록한다. 다른 사람의 생각이나 미확인 사실을 확정하지 않는다. 이 줄은 공개 발언이 아니다.' if scope=='world' and globals().get('feature_enabled',lambda key:False)('inner_thoughts') else ''
     calendar_context = world_context(CUSTOM_SETTINGS, now_kst(), config, character) if scope == 'world' and globals().get('_world_clock') else ''
-    return calendar_context + "\n" + policy_prompt(CUSTOM_SETTINGS, config, scope) + "\n\n" + _generation_feedback.get() + "\n" + character_prompt + (
+    return thought_rule + "\n" + calendar_context + "\n" + policy_prompt(CUSTOM_SETTINGS, config, scope) + "\n\n" + _generation_feedback.get() + "\n" + character_prompt + (
         "\n\n[복장]\n현재 참고할 복장: " + (outfit or "미지정")
         + "\n현재 복장이 지정되면 기본 복장보다 우선한다. 복장은 장면에 필요할 때만 묘사한다. "
         "지정되지 않은 옷·신발·장신구를 임의로 추가하지 않는다."
@@ -2866,7 +2874,7 @@ def update_character_needs(character):
 
     if state["sleeping"]:
         if not ("_life" in globals() and _life.record(character).get("nap")):
-            state["fatigue"] = max(0, state["fatigue"] - 14 * elapsed_h)
+            state["fatigue"] = max(0, state["fatigue"] - (CHARACTERS[character].get("sleep_recovery_per_hour",7) if feature_enabled("actual_sleep") else 14) * elapsed_h)
         state["hunger"] = min(100, state["hunger"] + 4 * elapsed_h)
     else:
         state["fatigue"] = min(100, state["fatigue"] + 5 * elapsed_h)
@@ -4013,6 +4021,7 @@ def get_character_context(character):
     habits = ", ".join(CHARACTERS[character].get("habits", [])) or "특별히 정해진 습관 없음"
     return (
         f"{_life.context(character, CUSTOM_SETTINGS) if '_life' in globals() else ''}\n"
+        f"{_world_actions.context(character, current_place.get(character) or '', CUSTOM_SETTINGS, PLACE_INFO.get(current_place.get(character),{}), bool(_life.busy(character,CUSTOM_SETTINGS))) if '_world_actions' in globals() and (CURRENT_LOG_SCOPE.get() or 'world') == 'world' else ''}\n"
         f"현재 생활 상태: {get_needs_text(character)}\n"
         f"기분의 이유: {state.get('mood_reason', '특별한 이유 없음')}\n"
         f"수면 여부: {'자는 중' if state['sleeping'] else '깨어 있음'}\n"
@@ -6768,7 +6777,7 @@ async def activity_loop(
                 character
             )
 
-            activity = choose_activity(
+            activity = await run_ai(choose_activity,
                 character,
                 place
             )
@@ -7196,7 +7205,7 @@ async def personal_rp_autonomous_loop(client, character):
                     guild_id=guild.id,
                 )
 
-                message_text = generate_personal_rp_autonomous_message(
+                message_text = await run_ai(generate_personal_rp_autonomous_message,
                     character,
                     recent_context,
                     target_character=target_character,
@@ -7462,7 +7471,7 @@ async def autonomous_message_loop(
                     other_character
                 ]
 
-                starter = generate_conversation_starter(
+                starter = await run_ai(generate_conversation_starter,
                     character,
                     other_character,
                     place
@@ -7484,7 +7493,7 @@ async def autonomous_message_loop(
 
             else:
                 message_text = (
-                    generate_autonomous_message(
+                    await run_ai(generate_autonomous_message,
                         character,
                         place
                     )
@@ -7530,9 +7539,7 @@ async def autonomous_message_loop(
                     f"{config['name']}의 새 자율 대화 시작"
                 )
 
-            await target_channel.send(
-                message_text
-            )
+            await send_world(target_channel,message_text,character,place)
 
             remember_autonomous_message(
                 character,
@@ -7666,7 +7673,7 @@ def generate_conversation_starter(
   주변 상황이나 상대의 현재 상태를 자연스럽게 언급할 수 있다.
 - 서로 다른 장소라면
   바로 옆에 있는 것처럼 말하지 않는다.
-- 다른 장소에 있는 상대에게는 Discord로 연락하는 느낌으로 말한다.
+- 서로 다른 장소에서는 설정된 대화 방식을 따른다. 현장 RP라면 확인된 연락·관찰 없이 상대 위치나 행동을 아는 것으로 취급하지 않는다.
 - 반드시 장소를 직접 언급할 필요는 없다.
 - 사소한 질문, 불평, 농담, 관찰도 가능하다.
 - 매번 "뭐 해?"처럼 같은 질문만 하지 않는다.
@@ -7985,6 +7992,10 @@ def clean_generated_text(text):
 
     for line in lines:
 
+        if line.upper().startswith('THOUGHT|'):
+            if globals().get('_generation_thought') and (_generation_scope.get() or CURRENT_LOG_SCOPE.get())=='world' and feature_enabled('inner_thoughts'):
+                _generation_thought.set(line.split('|',1)[1].strip()[:1000])
+            continue
         # 모델이 가끔 내놓는 불필요한 invalid 제거
         if line.lower() == "invalid":
             continue
@@ -8352,7 +8363,7 @@ async def place_movement_loop(
             old_place = current_place.get(character)
 
             # GPT는 이동 여부만 판단
-            should_move = decide_place_movement(character)
+            should_move = await run_ai(decide_place_movement, character)
 
             if not should_move:
                 log_message(
@@ -8384,7 +8395,7 @@ async def place_movement_loop(
                 destination,
             )
 
-            new_activity = choose_activity(character, destination)
+            new_activity = await run_ai(choose_activity, character, destination)
 
             await safe_change_presence(
                 client,
@@ -8688,7 +8699,7 @@ async def run_dynamic_event(
     ):
         return
 
-    event_seed = generate_dynamic_event_seed(
+    event_seed = await run_ai(generate_dynamic_event_seed,
         place,
         participants
     )
@@ -8763,7 +8774,7 @@ async def run_dynamic_event(
                 )
                 break
 
-            reply = generate_dynamic_event_reply(
+            reply = await run_ai(generate_dynamic_event_reply,
                 character,
                 other_character,
                 event_seed,
@@ -8776,9 +8787,7 @@ async def run_dynamic_event(
             if not reply:
                 break
 
-            await speaker_channel.send(
-                reply
-            )
+            await send_world(speaker_channel,reply,character,place)
 
             name = CHARACTERS[
                 character
@@ -8816,7 +8825,7 @@ async def run_dynamic_event(
                 reply
             )
 
-            if should_end_dynamic_event(
+            if await run_ai(should_end_dynamic_event,
                 event_seed,
                 event_history,
                 turn,
@@ -8854,7 +8863,7 @@ async def run_dynamic_event(
         for character in participants:
             try:
                 memory = (
-                    generate_dynamic_event_memory(
+                    await run_ai(generate_dynamic_event_memory,
                         character,
                         place,
                         event_seed,
@@ -10314,7 +10323,7 @@ async def movechar_command(interaction: discord.Interaction, character: str, pla
     old = current_place.get(key)
     current_place[key] = destination
     character_state[key]["away"] = False
-    activity_text = choose_activity(key, destination)
+    activity_text = await run_ai(choose_activity, key, destination)
     client = clients.get(key)
     if client and client.is_ready():
         await safe_change_presence(
@@ -10343,7 +10352,7 @@ async def forceevent_command(interaction: discord.Interaction, place: str, chara
     for key in participants:
         current_place[key] = destination
         character_state[key]["away"] = False
-        choose_activity(key, destination)
+        await run_ai(choose_activity, key, destination)
         client = clients.get(key)
         if client and client.is_ready():
             await safe_change_presence(
@@ -10374,7 +10383,7 @@ async def forceconversation_command(interaction: discord.Interaction, place: str
     for key in (a, b):
         current_place[key] = destination
         character_state[key]["away"] = False
-        choose_activity(key, destination)
+        await run_ai(choose_activity, key, destination)
         client = clients.get(key)
         if client and client.is_ready():
             await safe_change_presence(
@@ -10385,18 +10394,87 @@ async def forceconversation_command(interaction: discord.Interaction, place: str
             reason="관리자 강제 이동",
         )
         defer_character_movement(key, 10, 20, "강제 캐릭터 대화")
-    starter = generate_conversation_starter(a, b, destination)
+    starter = await run_ai(generate_conversation_starter, a, b, destination)
     channel = find_place_channel(clients[a], destination)
     if channel is None:
         await interaction.followup.send("해당 장소의 Discord 채널을 찾지 못했습니다.", ephemeral=True)
         return
     target_id = bot_character_ids.get(b)
     sent_text = f"<@{target_id}> {starter}" if target_id else starter
-    await channel.send(sent_text)
+    await send_world(channel,sent_text,a,destination)
     save_message(channel.id, CHARACTERS[a]["name"], starter)
     conversation_history[channel.id].append(f"{CHARACTERS[a]['name']} → {CHARACTERS[b]['name']}: {starter}")
     await interaction.followup.send(f"**{destination}**에서 대화를 시작했습니다: **{CHARACTERS[a]['name']} → {CHARACTERS[b]['name']}**", ephemeral=True)
     log_message("Status", "강제 일반 대화:", CHARACTERS[a]["name"], "→", CHARACTERS[b]["name"], "@", destination)
+
+
+@status_tree.command(name="재료상자", description="현재 장소에 재료 상자를 놓고 발견·정리합니다.")
+@app_commands.choices(종류=[app_commands.Choice(name=k,value=k) for k in ('놓기','발견','정리')])
+@app_commands.describe(내용="놓기: 빵:3,우유:2 / 발견·정리: 상자 ID")
+async def ingredient_box_command(interaction: discord.Interaction, 종류: str, 내용: str):
+    if not interaction.guild or not is_main_world_guild_id(interaction.guild.id) or not feature_enabled('ingredient_stock'):
+        await interaction.response.send_message('본서버에서 식재료 재고 기능을 켠 뒤 사용하세요.',ephemeral=True);return
+    place=normalize_place_name_from_channel(getattr(interaction.channel,'name',''))
+    if place not in PLACE_INFO:
+        await interaction.response.send_message('등록 장소 채널에서 사용하세요.',ephemeral=True);return
+    try:
+        if 종류=='놓기':
+            contents={}
+            for pair in 내용.split(','):
+                name,count=pair.rsplit(':',1);contents[name.strip()]=int(count.strip())
+            identifier=_world_actions.supply_box(interaction.id,f'user:{interaction.user.id}',place,contents)
+            result='재료 상자 #'+identifier+' 도착 (발견 후 정리하면 재고에 추가됩니다.)'
+        else:result=_world_actions.handle_box(내용.strip(),f'user:{interaction.user.id}',place,종류)
+        await interaction.response.send_message(result,ephemeral=True)
+    except ValueError as error:await interaction.response.send_message('상자 입력을 확인하세요: '+str(error),ephemeral=True)
+
+
+@status_tree.command(name="음식준비", description="현재 장소에 음식 수량·함께 준비한 세트를 등록합니다.")
+@app_commands.describe(음식="음식 이름. 같은 세트 구성품은 쉼표로 구분", 수량="준비한 세트 수")
+async def prepare_food_command(interaction: discord.Interaction, 음식: str, 수량: app_commands.Range[int,1,100] = 1):
+    if not interaction.guild or not is_main_world_guild_id(interaction.guild.id):
+        await interaction.response.send_message('본서버의 등록 장소에서 사용하세요.',ephemeral=True);return
+    place=normalize_place_name_from_channel(getattr(interaction.channel,'name',''))
+    if place not in PLACE_INFO:
+        await interaction.response.send_message('등록 장소 채널에서 사용하세요.',ephemeral=True);return
+    try:
+        names=[n.strip()[:100] for n in 음식.split(',') if n.strip()]
+        if len(names)>10:raise ValueError('한 세트 구성품은 최대 10개로 입력하세요.')
+        result=_world_actions.prepare_food(interaction.id,f'user:{interaction.user.id}',place,names,int(수량),PLACE_INFO[place],CUSTOM_SETTINGS)
+        await interaction.response.send_message(result,ephemeral=True)
+    except ValueError as error:await interaction.response.send_message(str(error),ephemeral=True)
+
+
+@status_tree.command(name="운영진단", description="공개 월드 자료를 AI로 검토하고 관리자 PC에 보고서를 저장합니다.")
+async def diagnose_command(interaction: discord.Interaction):
+    if not await _check_admin_command_access(interaction):return
+    await interaction.response.defer(ephemeral=True,thinking=True)
+    try:
+        path,_=await asyncio.to_thread(diagnose,DATA_DIR,diagnostic_payload(),_monitor.secrets)
+        await interaction.followup.send('관리자 PC에 보고서를 저장했습니다: '+path.name,ephemeral=True)
+    except Exception as error:
+        await interaction.followup.send('운영 진단 실패: '+str(error),ephemeral=True)
+
+
+@status_tree.command(name="생활행동", description="본서버 장소에 부탁·쪽지·물건을 남기거나 등록 물건을 관리합니다.")
+@app_commands.describe(종류="행동 종류", 이름="물건 이름 또는 기존 부탁·물건 ID", 캐릭터="수신·대여 캐릭터 키", 내용="부탁·쪽지 내용", 비밀="지정 수신자만 참고하는 내용")
+@app_commands.choices(종류=[app_commands.Choice(name=k,value=k) for k in ('부탁','쪽지','부탁취소','물건놓기','분실신고','발견','반환','물건회수','대여')])
+async def world_action_command(interaction: discord.Interaction, 종류: str, 이름: str = '', 캐릭터: str = '', 내용: str = '', 비밀: bool = False):
+    if not interaction.guild or not is_main_world_guild_id(interaction.guild.id):
+        await interaction.response.send_message('본서버의 등록 장소에서 사용하세요.',ephemeral=True);return
+    flag='world_requests' if 종류 in ('부탁','쪽지','부탁취소') else 'lost_found'
+    if not feature_enabled(flag):
+        await interaction.response.send_message('셋업에서 해당 생활 기능을 먼저 켜세요.',ephemeral=True);return
+    place=normalize_place_name_from_channel(getattr(interaction.channel,'name',''))
+    if place not in PLACE_INFO:
+        await interaction.response.send_message('등록된 장소 채널에서 사용하세요.',ephemeral=True);return
+    if 캐릭터 and 캐릭터 not in CHARACTERS:
+        await interaction.response.send_message('설정에 등록된 캐릭터 키를 입력하세요.',ephemeral=True);return
+    try:
+        result=_world_actions.command(interaction.id,f'user:{interaction.user.id}',place,종류,이름,캐릭터,내용,비밀)
+    except ValueError as error:
+        await interaction.response.send_message(str(error),ephemeral=True);return
+    await interaction.response.send_message(result,ephemeral=True)
 
 
 @status_tree.command(name="setmood", description="캐릭터의 기분과 이유를 일정 시간 강제로 지정합니다.")
@@ -10931,7 +11009,7 @@ def create_client(character):
                 character
             )
 
-        activity = choose_activity(
+        activity = await run_ai(choose_activity,
             character,
             place
         )
@@ -11513,6 +11591,9 @@ def create_client(character):
         # ------------------------------------------
 
         if message.author.bot:
+            source_character=bot_user_characters.get(message.author.id)
+            if not personal_rp_mode and not is_dm and source_character and current_place.get(source_character)==place and not character_state[source_character].get('sleeping') and not character_state[source_character].get('away'):
+                record_world_sent(message,source_character,place,message.content or '')
 
             if GENERIC_CONFIG_ACTIVE and not feature_enabled("bot_to_bot_chat"):
                 return
@@ -11685,7 +11766,7 @@ def create_client(character):
                 if directly_addressed:
                     action = "REPLY"
                 else:
-                    action = decide_bot_reaction(
+                    action = await run_ai(decide_bot_reaction,
                         character,
                         other_name,
                         message.content,
@@ -11710,7 +11791,7 @@ def create_client(character):
                 )
 
                 reply_language = conversation_language[channel_id]
-                reply = generate_bot_reply(
+                reply = await run_ai(generate_bot_reply,
                     character,
                     other_name,
                     message.content,
@@ -11769,7 +11850,7 @@ def create_client(character):
                         current_place.get(character),
                         other_character
                     )
-                    maybe_analyze_relationship_update(
+                    await run_ai(maybe_analyze_relationship_update,
                         character,
                         other_character,
                         message.content,
@@ -11798,6 +11879,15 @@ def create_client(character):
         # ------------------------------------------
         # 여기부터 사람 메시지
         # ------------------------------------------
+        if not personal_rp_mode and not is_dm and not is_offline_recovery and place in PLACE_INFO:
+            outcomes = _world_actions.apply(message.id, f'user:{message.author.id}', place,
+                message.content or '', PLACE_INFO[place], CUSTOM_SETTINGS)
+            for outcome in outcomes: _monitor.event('생활행동', '', outcome, place)
+            if outcomes and any(not o.startswith(('식재료 부족','음식 재고 부족','설거지 보류','음식 수량')) for o in outcomes):
+                try: await message.add_reaction('✅')
+                except (discord.HTTPException, discord.Forbidden):
+                    _monitor.event('오류', '', '생활 행동은 저장됐지만 확인 반응을 남기지 못했습니다.', place)
+
 
         targeted_to_me = (
             True
@@ -11954,6 +12044,16 @@ def create_client(character):
                     e,
                 )
 
+        if not personal_rp_mode and not is_dm and not is_offline_recovery and current_place.get(character)==place and 6<=now_kst().hour<12 and any(word in clean_text for word in ('일어나','기상','깨워')):
+            wake_choice=_life.wake_response(character,character_state[character],config,CUSTOM_SETTINGS,datetime.now(timezone.utc).timestamp())
+            if wake_choice:
+                try:await message.add_reaction('⏰' if wake_choice=='일어남' else '💤')
+                except discord.HTTPException:pass
+                if wake_choice=='일어남':await set_sleeping_state(character,False)
+                else:
+                    mark_discord_mention_processed(character,message.id)
+                    _monitor.event('수면',character,'아침 기상 요청: '+wake_choice,place);return
+
         if not personal_rp_mode and not is_dm and _life.record(character).get('nap'):
             character_state[character]['sleeping']=False
             place=current_place.get(character)
@@ -12040,7 +12140,8 @@ def create_client(character):
                 )
 
         try:
-            memory_result = analyze_memory(
+            memory_result = await run_ai(
+                analyze_memory,
                 character,
                 user_subject,
                 message.author.display_name,
@@ -12177,9 +12278,14 @@ def create_client(character):
                 else (current_character_place or place)
             )
 
+            job_id=f'reply:{character}:{message.id}'
+            _world_actions.submit(job_id,'사용자 답변',character,place,{'message_id':str(message.id),'channel_id':str(channel_id),'scope':'dm' if is_dm else 'rp' if personal_rp_mode else 'world'})
+            if not _world_actions.begin_job(job_id):
+                _monitor.event('발언 보류',character,'중복 또는 전송 결과 확인이 필요한 작업',channel_id);return
+            reply_snapshot = (current_place.get(character), character_state[character].get('sleeping'), character_state[character].get('away'))
             _monitor.request(character, message.id, '답변 생성 중', channel_id,
                              f'{message.author.display_name}: {message.content}')
-            reply, destination = await asyncio.to_thread(
+            reply, destination = await run_ai(
                 generate_character_reply,
                 character,
                 message.author.display_name,
@@ -12199,8 +12305,10 @@ def create_client(character):
                 profile_subject=base_user_subject,
                 fixed_relation_override=guild_relation_context,
                 external_rp=personal_rp_mode,
+                priority=0,
             )
             if not reply:
+                _world_actions.job_phase(job_id,'취소','대화 검사에서 보류됨')
                 _monitor.request(character, message.id, '발언 보류', channel_id, '대화 검사에서 보류됨')
                 _monitor.requests.pop(f'{character}:{message.id}', None)
                 return
@@ -12222,6 +12330,44 @@ def create_client(character):
                     ):
                         destination = None
                         
+            reply_length = len((reply or "").strip())
+
+            if is_offline_recovery:
+                reply_delay = random.randint(1, 3)
+            elif reply_length <= 40:
+                reply_delay = random.randint(3, 12)
+            elif reply_length <= 100:
+                reply_delay = random.randint(8, 25)
+            elif reply_length <= 200:
+                reply_delay = random.randint(15, 40)
+            else:
+                reply_delay = random.randint(25, 60)
+
+            log_message(
+                config["name"],
+                "사용자 답장 대기:",
+                f"{reply_delay}초",
+                "| 길이:",
+                f"{reply_length}자",
+            )
+
+            _monitor.request(character, message.id, '응답 대기 중', channel_id)
+            await asyncio.sleep(reply_delay)
+
+            if not personal_rp_mode and not is_dm and reply_snapshot != (current_place.get(character), character_state[character].get('sleeping'), character_state[character].get('away')):
+                _world_actions.job_phase(job_id,'취소','생성 중 생활 상태 변경')
+                _monitor.request(character, message.id, '발언 보류', channel_id, '생성 중 장소·수면·외출 상태가 변경됨')
+                return
+            _world_actions.job_phase(job_id,'전송 중')
+            if destination is not None and movement_allowed and not can_enter_place(character,destination):
+                _world_actions.job_phase(job_id,'취소','전송 전 목적지 출입 조건 변경')
+                _monitor.request(character,message.id,'발언 보류',channel_id,'목적지 출입 조건이 변경됨');return
+            sent_reply = await message.reply(reply)
+            mark_discord_mention_processed(character,message.id)
+            _world_actions.job_phase(job_id,'완료')
+            if not personal_rp_mode and not is_dm:
+                record_world_sent(sent_reply,character,place,reply,apply_effects=not is_offline_recovery)
+
             if (
                 destination is not None
                 and movement_allowed
@@ -12229,23 +12375,6 @@ def create_client(character):
                 old_place = current_place.get(
                     character
                 )
-
-                temporary_access = False
-
-                # 원래 접근할 수 없는 개인실인데
-                # GPT가 명확한 초대/허용 맥락을 보고
-                # 실제 이동을 선택한 경우
-                if not can_enter_place(
-                    character,
-                    destination
-                ):
-                    room_access_permissions[
-                        character
-                    ].add(
-                        destination
-                    )
-
-                    temporary_access = True
 
                 if can_enter_place(
                     character,
@@ -12255,7 +12384,7 @@ def create_client(character):
                         character
                     ] = destination
 
-                    new_activity = choose_activity(
+                    new_activity = await run_ai(choose_activity,
                         character,
                         destination
                     )
@@ -12277,14 +12406,6 @@ def create_client(character):
                         destination,
                     )
                     await maybe_deliver_unread_note(character)
-
-                # 상대방 방 초대는 일회성 접근 권한
-                if temporary_access:
-                    room_access_permissions[
-                        character
-                    ].discard(
-                        destination
-                    )
 
                 consume_room_invitation(character, destination)
 
@@ -12335,34 +12456,7 @@ def create_client(character):
 
             # 사용자에게 답할 때 답변 길이에 따라 약간의 랜덤 텀을 둔다.
             # 짧은 답은 비교적 빨리, 긴 답은 최대 60초까지 늦게 보낸다.
-            reply_length = len((reply or "").strip())
-
-            if is_offline_recovery:
-                reply_delay = random.randint(1, 3)
-            elif reply_length <= 40:
-                reply_delay = random.randint(3, 12)
-            elif reply_length <= 100:
-                reply_delay = random.randint(8, 25)
-            elif reply_length <= 200:
-                reply_delay = random.randint(15, 40)
-            else:
-                reply_delay = random.randint(25, 60)
-
-            log_message(
-                config["name"],
-                "사용자 답장 대기:",
-                f"{reply_delay}초",
-                "| 길이:",
-                f"{reply_length}자",
-            )
-
-            _monitor.request(character, message.id, '응답 대기 중', channel_id)
-            await asyncio.sleep(reply_delay)
-
-            await message.reply(
-                reply
-            )
-
+            _world_actions.job_phase(job_id,'완료')
             _monitor.request(character, message.id, '전송 완료', channel_id, reply)
             mark_discord_mention_processed(
                 character,
@@ -12385,6 +12479,7 @@ def create_client(character):
                 )
 
         except Exception as e:
+            if 'job_id' in locals(): _world_actions.job_phase(job_id,'불확정' if isinstance(e, (asyncio.TimeoutError, OSError)) else '오류', type(e).__name__)
             _monitor.request(character, message.id, '오류', message.channel.id, str(e))
             log_message(
                 config["name"],
@@ -12417,6 +12512,29 @@ def generate_dream(character):
         return None
 
 
+def record_world_sent(sent, character, place, text, apply_effects=True):
+    try:
+        _world_actions.public_dialogue(sent.id,character,place,redact(text,_monitor.secrets))
+        _world_actions.sent(character,text,place)
+        if apply_effects and current_place.get(character)==place and not character_state[character].get('sleeping') and not character_state[character].get('away'):
+            for outcome in _world_actions.apply(sent.id,character,place,text,PLACE_INFO.get(place,{}),CUSTOM_SETTINGS,character=True):
+                _monitor.event('생활행동',character,outcome,place)
+    except Exception as error:
+        _monitor.event('오류',character,'전송은 완료했으나 생활 자료 기록 실패: '+str(error),place)
+
+
+async def send_world(channel, text, character, place):
+    sent=await channel.send(text)
+    record_world_sent(sent,character,place,text)
+    return sent
+
+
+async def run_ai(fn,*args,priority=10,**kwargs):
+    token=GENERATION_PRIORITY.set(priority)
+    try:return await asyncio.to_thread(fn,*args,**kwargs)
+    finally:GENERATION_PRIORITY.reset(token)
+
+
 async def set_sleeping_state(character, sleeping):
     client = clients.get(character)
     if client is None or not client.is_ready():
@@ -12442,6 +12560,7 @@ async def set_sleeping_state(character, sleeping):
             current_place[character] = room
         current_activity[character] = "자는 중"
         state["sleep_started_at"] = now_kst()
+        _life.begin_sleep(character, state, CUSTOM_SETTINGS, datetime.now(timezone.utc).timestamp())
         state["dream"] = None
         state["dream_expires_at"] = None
         await safe_change_presence(
@@ -12456,18 +12575,18 @@ async def set_sleeping_state(character, sleeping):
         set_mood(character, "졸림", "수면 시간이라 잠자리에 듦")
         log_message(config["name"], "취침")
     else:
-        state["fatigue"] = max(0, state["fatigue"] - 55)
-        _life.wake(character, state, CUSTOM_SETTINGS)
+        if not feature_enabled('actual_sleep'): state["fatigue"] = max(0, state["fatigue"] - 55)
+        _life.wake(character, state, CUSTOM_SETTINGS, datetime.now(timezone.utc).timestamp(), config)
         state["last_wake_at"] = now_kst()
         set_mood(character, "평온", "잠에서 깨어 피로가 회복됨", hours=1)
         if random.random() < 0.20:
-            dream = generate_dream(character)
+            dream = await run_ai(generate_dream,character)
             if dream:
                 state["dream"] = dream
                 state["dream_expires_at"] = datetime.now() + timedelta(hours=4)
                 log_message(config["name"], "꿈 기억:", dream)
         place = current_place.get(character) or config.get("private_room") or choose_place(character)
-        status_text = choose_activity(character, place)
+        status_text = await run_ai(choose_activity, character, place)
         await safe_change_presence(
             client,
             character=character,
@@ -12478,13 +12597,25 @@ async def set_sleeping_state(character, sleeping):
         log_message(config["name"], "기상 |", status_text)
 
 
+def life_should_sleep(character):
+    if not feature_enabled('sleep_system'):return False
+    now=now_kst();stamp=datetime.now(timezone.utc).timestamp();record=_life.record(character)
+    if record.get('wake_override_until',0)>stamp:return False
+    if record.get('wake_delayed_until',0)>stamp and character_state[character].get('sleeping'):return True
+    if is_sleep_time(character,now):return True
+    if feature_enabled('weekend_rest') and now.weekday() in (5,6) and character_state[character].get('sleeping'):
+        wake=ensure_daily_sleep_schedule(character)['wake_minute'];minute=now.hour*60+now.minute
+        return wake<=minute<wake+CHARACTERS[character].get('weekend_extra_sleep_hours',1)*60
+    return False
+
+
 async def life_state_loop(character):
     client = clients[character]
     await client.wait_until_ready()
 
     # 시작 시 현재 시간에 맞춰 즉시 수면 상태 정렬
     sched = ensure_daily_sleep_schedule(character)
-    initial_sleeping = feature_enabled("sleep_system") and is_sleep_time(character)
+    initial_sleeping = life_should_sleep(character)
     if not initial_sleeping and character_state[character].get("last_wake_at") is None:
         now = now_kst()
         wake_today = datetime.combine(
@@ -12517,10 +12648,15 @@ async def life_state_loop(character):
             r = _life.record(character)
             state['temperature'] = get_world_temperature()
             state['outfit_set'] = bool(CHARACTERS[character].get('current_outfit') or CHARACTERS[character].get('default_outfit'))
+            _world_actions.tick_objects(place or '',PLACE_INFO.get(place,{}),str(ensure_daily_weather()),CUSTOM_SETTINGS)
             stage_channel=find_place_channel(client,place)
             in_stage_event=bool(stage_channel and dynamic_event_channels.get(stage_channel.id,False))
-            scheduled_sleep = feature_enabled('sleep_system') and is_sleep_time(character)
+            scheduled_sleep = life_should_sleep(character)
             stage_busy = in_stage_event or bool(movement_defer_until.get(character) and datetime.now() < movement_defer_until[character]) or bool(_life_appointment_due(character))
+            morning_target=_life.morning_destination(character,CHARACTERS[character],CUSTOM_SETTINGS,datetime.now(timezone.utc).timestamp(),place,PLACE_INFO,current_place,lambda target:can_enter_place(character,target),busy=stage_busy or scheduled_sleep)
+            if morning_target:
+                current_place[character]=morning_target;r.pop('seat',None);place=morning_target
+                _monitor.event('이동',character,'몸단장 장소로 이동: '+morning_target)
             destination = scheduled_destination(CUSTOM_SETTINGS, CHARACTERS[character], now_kst(), place,
                 lambda target: can_enter_place(character, target),
                 busy=stage_busy or bool(get_movement_busy_reason(character, client)) or scheduled_sleep,
@@ -12528,12 +12664,13 @@ async def life_state_loop(character):
             if destination:
                 current_place[character] = destination
                 r.pop('seat', None)
-                current_activity[character] = choose_activity(character, destination)
+                current_activity[character] = await run_ai(choose_activity, character, destination)
                 log_message(CHARACTERS[character]['name'], '요일 일정으로 이동:', place, '→', destination)
                 place = destination
             # Nap recovery is handled only once by LifeEngine, not by night-sleep recovery.
+            meal_definition=dict(PLACE_INFO.get(place, {}),_food_weather_ok=not PLACE_INFO.get(place,{}).get('outdoor') or (not any(w in str(ensure_daily_weather()) for w in ('비','눈','폭풍')) and 10<=state['temperature']<=28))
             current_activity[character] = _life.tick(
-                character, place, PLACE_INFO.get(place, {}), state,
+                character, place, meal_definition, state,
                 current_activity.get(character, ''), CUSTOM_SETTINGS, datetime.now(timezone.utc).timestamp(),
                 now_kst().hour, str(ensure_daily_weather()),
                 busy=stage_busy or not place_open(CUSTOM_SETTINGS, PLACE_INFO.get(place,{}), now_kst()),
@@ -12545,7 +12682,7 @@ async def life_state_loop(character):
                     if destination:
                         current_place[character]=destination
                         r.pop('seat',None); r.pop('finished_meal_at',None)
-                        current_activity[character]=choose_activity(character,destination)
+                        current_activity[character]=await run_ai(choose_activity, character,destination)
                         log_message(CHARACTERS[character]['name'],'식사 후 이동:',place,'→',destination)
                 else: r.pop('finished_meal_at',None)
             if feature_enabled('opening_hours') and feature_enabled('place_movement') and not place_open(CUSTOM_SETTINGS, PLACE_INFO.get(current_place.get(character), {}), now_kst()) and not stage_busy and not scheduled_sleep and not get_movement_busy_reason(character, client):
@@ -12554,13 +12691,15 @@ async def life_state_loop(character):
                 if destination:
                     current_place[character] = destination
                     r.pop('seat', None)
-                    current_activity[character] = choose_activity(character, destination)
+                    current_activity[character] = await run_ai(choose_activity, character, destination)
                     log_message(CHARACTERS[character]['name'], '영업 종료 후 이동:', old, '→', destination)
+            _world_actions.sync_leisure_seats(CUSTOM_SETTINGS)
+            _world_actions.discover(character,current_place.get(character) or '',CUSTOM_SETTINGS)
             _life.save()
             cleanup_appointments()
             cleanup_room_invitations()
             await maybe_deliver_unread_note(character)
-            should_sleep = feature_enabled("sleep_system") and is_sleep_time(character)
+            should_sleep = life_should_sleep(character)
 
             # 진행 중인 다이나믹 이벤트가 있으면 장소 이동을 끝날 때까지 미룬다.
             current_channel = find_place_channel(client, current_place.get(character))
@@ -12599,7 +12738,7 @@ async def appointment_loop(character):
                         current_place[character] = destination
                         if destination in PRIVATE_ROOMS and PRIVATE_ROOMS[destination] != character:
                             consume_room_invitation(character, destination)
-                        status_text = choose_activity(character, destination)
+                        status_text = await run_ai(choose_activity, character, destination)
                         await safe_change_presence(
                             client,
                             character=character,
@@ -12646,7 +12785,7 @@ async def away_loop(character):
         set_mood(character, "평온", "외출에서 돌아옴")
         current_place[character] = return_place
         place = current_place.get(character) or choose_place(character)
-        status_text = choose_activity(character, place)
+        status_text = await run_ai(choose_activity, character, place)
         await safe_change_presence(
             client,
             character=character,
@@ -12660,7 +12799,22 @@ async def away_loop(character):
 
 _generation_scope = contextvars.ContextVar('generation_scope', default='')
 _generation_feedback = contextvars.ContextVar('generation_feedback', default='')
+_generation_thought = contextvars.ContextVar('generation_thought', default='')
 _life = LifeEngine(DATA_DIR, lambda kind, key, text: _monitor.event(kind, key, text))
+validate_extensions(CHARACTERS,PLACE_INFO)
+_world_actions = WorldActions(DATA_DIR, DISCORD_GUILD_ID or 'unconfigured')
+_life.world = _world_actions
+_world_actions.life = _life
+if feature_enabled('world_simulation'):
+    for _key in CHARACTERS:
+        _checkpoint=_life.record(_key).get('checkpoint',{})
+        if _checkpoint:
+            if _checkpoint.get('place') in PLACE_INFO: current_place[_key]=_checkpoint['place']
+            current_activity[_key]=_checkpoint.get('activity',current_activity.get(_key,''))
+            if feature_enabled('sleep_system') and _life.record(_key).get('night_sleep'):
+                character_state[_key]['sleeping']=True
+            for _field in ('hunger','fatigue'):
+                if isinstance(_checkpoint.get(_field),(int,float)): character_state[_key][_field]=max(0,min(100,_checkpoint[_field]))
 for _loan in _life.loans.values():
     if _loan['owner'] in character_inventory and _loan['borrower'] in character_inventory:
         character_inventory[_loan['owner']].discard(_loan['item'])
@@ -12712,6 +12866,7 @@ def _checked_generation(fn):
                 relation += get_character_relationship_goal(character, other)
             result = None
             for attempt in range(2):
+                if globals().get('_generation_thought'): _generation_thought.set('')
                 _monitor.event('생성', character, fn.__name__+' · 생성 중')
                 result = fn(*args, **kwargs)
                 _monitor.event('생성', character, fn.__name__+' · 생성 완료')
@@ -12720,7 +12875,10 @@ def _checked_generation(fn):
                 reason = dialogue_reason(text or '', history) if feature_enabled('dialogue_guard') and not requested_repeat else ''
                 if not reason and feature_enabled('relationship_guard'):
                     reason = relationship_reason(text or '', relation)
-                if not reason: return result
+                if not reason:
+                    if scope=='world' and globals().get('_world_actions') and feature_enabled('inner_thoughts') and _generation_thought.get():
+                        _world_actions.stage_thought(character,text or '',_generation_thought.get())
+                    return result
                 _monitor.event('대화 검사', character, f'{reason} · '+('재생성' if attempt == 0 else '발언 보류'))
                 if attempt == 0:
                     feedback_token = _generation_feedback.set('[이번 초안 수정 지시]\n'+reason+' 때문에 이전 초안은 사용하지 않는다. 새로운 내용으로 답한다. 관계와 현재 상태를 유지한다.')
@@ -12832,6 +12990,27 @@ async def start_discord_client_resilient(label, client, token):
             await asyncio.sleep(wait_seconds)
 
 
+def diagnostic_payload():
+    snapshot=_world_actions.snapshot(CUSTOM_SETTINGS)
+    public_kinds={'생활행동','음식 수령','섭취','생활 명령','쪽지 발견','관리자 수정','오브젝트 변화'}
+    return dict(world=CUSTOM_SETTINGS.get('world_name',''),environment=calendar_display(CUSTOM_SETTINGS,now_kst()),
+        characters={k:{f:v.get(f) for f in ('hunger','fatigue','sleeping','away','mood')} for k,v in character_state.items()},
+        locations=dict(current_place),activities=dict(current_activity),
+        objects=snapshot['states'].get('object',{}),food=snapshot['states'].get('food',{}),
+        dialogue=[e for e in snapshot['events'] if e['kind']=='공개 대화'],
+        events=[e for e in snapshot['events'] if e['kind'] in public_kinds and e['kind']!='관리자 수정'])
+
+
+async def diagnostic_loop():
+    while True:
+        await asyncio.sleep(3600)
+        if feature_enabled('hourly_diagnostics'):
+            try:
+                path,_=await asyncio.to_thread(diagnose,DATA_DIR,diagnostic_payload(),_monitor.secrets)
+                _monitor.event('운영 진단','','보고서 저장: '+path.name)
+            except Exception as error:_monitor.event('오류','','운영 진단 실패: '+str(error))
+
+
 async def desktop_monitor_loop(main_task):
     while True:
         for key, config in CHARACTERS.items():
@@ -12839,7 +13018,7 @@ async def desktop_monitor_loop(main_task):
             state = _monitor.characters.setdefault(key, {})
             state.update(name=config['name'], connected=bool(client and client.is_ready()),
                          place=current_place.get(key), activity=current_activity.get(key),
-                         outfit=config.get('current_outfit') or config.get('default_outfit') or '미지정',
+                         outfit=_life.outfit(key,config,CUSTOM_SETTINGS,character_state.get(key,{}).get('sleeping'),str(ensure_daily_weather())) or '미지정',
                          **{k: character_state.get(key, {}).get(k) for k in ('mood','hunger','fatigue','sleeping','away')},
                          life=_life.context(key, CUSTOM_SETTINGS),
                          seat=_life.record(key).get('seat'),
@@ -12849,6 +13028,12 @@ async def desktop_monitor_loop(main_task):
         _monitor.environment = dict(calendar_display(CUSTOM_SETTINGS, now_kst()), 날씨=ensure_daily_weather(), 기온=f'{get_world_temperature()}°C')
         events = visible_events(CUSTOM_SETTINGS, now_kst(), public_only=True)
         if events: _monitor.environment['오늘의 공개 기념일·행사'] = ', '.join(e['name'] for e in events)
+        if feature_enabled('world_simulation'):
+            for key in CHARACTERS:
+                _life.record(key)['checkpoint']={**{f:character_state.get(key,{}).get(f) for f in ('hunger','fatigue')},'place':current_place.get(key),'activity':current_activity.get(key)}
+            _life.save()
+        _world_actions.record_samples(character_state,current_place,{k:bool(c.is_ready()) for k,c in clients.items()},{k:bool(_life.record(k).get('nap')) for k in CHARACTERS},CUSTOM_SETTINGS)
+        _monitor.world = _world_actions.snapshot(CUSTOM_SETTINGS)
         _monitor.flush()
         stop_file = DATA_DIR / 'desktop_stop.request'
         if stop_file.exists():
@@ -12860,7 +13045,7 @@ async def desktop_monitor_loop(main_task):
 
 async def main():
     (DATA_DIR / 'desktop_stop.request').unlink(missing_ok=True)
-    asyncio.create_task(desktop_monitor_loop(asyncio.current_task()))
+    monitor_task=asyncio.create_task(desktop_monitor_loop(asyncio.current_task()))
     # 토큰이 설정된 캐릭터만 실행한다.
     enabled_characters = [
         character
@@ -12910,7 +13095,7 @@ async def main():
         raise RuntimeError("실행 가능한 Discord 봇 토큰이 없습니다.")
 
     login_tasks = []
-    background_tasks = []
+    background_tasks = [asyncio.create_task(diagnostic_loop())]
 
     try:
         # 상태 봇은 토큰이 있으면 함께 실행한다.
@@ -13101,6 +13286,19 @@ async def main():
         )
 
     finally:
+        _monitor.environment['실행 상태'] = '종료 중: 생활 상태 저장 및 Discord 연결 정리'
+        _monitor.flush()
+        _life.save()
+        openai_client.close_requests()
+        # Only currently running calls count; historical failure rows never block exit.
+        shutdown_started=asyncio.get_running_loop().time()
+        while openai_client.active and asyncio.get_running_loop().time()-shutdown_started<30:
+            _monitor.environment['실행 상태']=f'종료 대기: AI 실행 {openai_client.active}건 · {int(asyncio.get_running_loop().time()-shutdown_started)}초'
+            _monitor.world=_world_actions.snapshot(CUSTOM_SETTINGS);_monitor.flush()
+            await asyncio.sleep(1)
+        for job in _world_actions.snapshot(CUSTOM_SETTINGS)['jobs']:
+            if job['phase'] in ('생성 중','전송 중'):_world_actions.job_phase(job['id'],'불확정','종료 시 진행 결과 확인 필요')
+        _monitor.environment['실행 상태']='종료 중: Discord 연결 정리';_monitor.flush()
         # 어느 한 task에서 예외가 나더라도 나머지 background task와 Discord 세션을
         # 정상적으로 닫아 aiohttp의 'Unclosed client session' 경고를 줄인다.
         for task in background_tasks:
@@ -13148,6 +13346,10 @@ async def main():
         if login_tasks:
             await asyncio.gather(*login_tasks, return_exceptions=True)
 
+        monitor_task.cancel()
+        await asyncio.gather(monitor_task,return_exceptions=True)
+        _monitor.environment['실행 상태']='종료 완료'
+        _monitor.world=_world_actions.snapshot(CUSTOM_SETTINGS)
         log_message("General", "Discord 클라이언트 정리 완료")
         for state in _monitor.characters.values(): state['connected'] = False
         _monitor.requests.clear()
@@ -13167,8 +13369,9 @@ for _character in CHARACTERS:
 # 한 번 실행한 뒤 다시 주석 처리한다.
 # reset_test_data()
 
-try:
-    asyncio.run(main())
-except (KeyboardInterrupt, asyncio.CancelledError):
-    print()
-    log_message("General", "Discord 봇 종료 완료")
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        print()
+        log_message("General", "Discord 봇 종료 완료")

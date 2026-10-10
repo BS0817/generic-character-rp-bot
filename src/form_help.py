@@ -2,6 +2,23 @@
 import json
 
 CHECKBOX_HELP = {
+ 'wake_calls':'같은 장소에서 직접 아침 기상을 요청하면 실제 수면량에 따라 일어남·미룸·거부·무응답을 선택합니다. 06~12시 요청에만 적용합니다.',
+ 'weekend_rest':'세계 달력의 토·일요일에는 설정한 시간만큼 추가로 자고 일어날 수 있습니다. 이미 깨어 있으면 다시 재우지 않습니다.',
+ 'life_statistics':'1분 간격으로 공개 월드 캐릭터 상태를 최대 90일 보관합니다. 기록이 없는 시간은 그래프에서 연결하지 않습니다. 추가 AI 호출은 없습니다.',
+ 'inner_thoughts':'공개 월드 발언에 포함된 속마음 초안을 공개 답변에서 제거하고 관리자 PC에 기록합니다. 개인 RP·DM에는 월드 속마음을 공유하지 않습니다.',
+ 'hourly_diagnostics':'별도 지정한 AI 모델로 공개 월드 상태를 1시간 간격으로 검토합니다. API 사용량이 발생하며 보고서만 저장합니다. 자동 수정·재시작은 하지 않습니다.',
+ 'world_requests':'생활행동 명령으로 등록한 부탁·쪽지의 제안·수락·진행·완료·만료를 구분합니다. 비밀은 지정된 수신자만 참고합니다.',
+ 'lost_found':'생활행동 명령으로 장소에 남긴 물건의 주인·보관자·분실·반환을 기록합니다. 발견만으로 소유권을 바꾸지 않습니다.',
+ 'actual_sleep':'실제로 잔 시간만큼 피로를 회복하고 부족한 수면 시간을 기록합니다. 짧은 수면으로 피로를 초기화하지 않습니다.',
+ 'morning_routine':'기상 후 정신 차리기·몸단장·식사 준비 단계를 진행합니다. 대화 중에는 새 단계를 시작하지 않습니다.',
+ 'outfit_schedule':'등록한 잠옷과 날씨 조건별 낮 복장을 사용합니다. 목록에 없는 옷을 새로 만들지 않습니다.',
+ 'user_world_actions':'본서버의 등록 장소에서 완료한 행동을 반영합니다. 질문·제안·부정·인용은 반영하지 않습니다.',
+ 'food_stock':'등록 음식의 준비 수량과 만료를 기록합니다. 수령과 실제 섭취를 구분하며 중복 반영을 막습니다.',
+ 'ingredient_stock':'등록 조리법의 재료 재고가 있을 때만 조리에 사용합니다. 생활 자료 탭에서 재고를 입력하세요.',
+ 'dishwashing':'실제 섭취로 식기가 누적됩니다. 설거지 담당 예약은 30분 후 만료합니다.',
+ 'object_states':'등록 사물과 등록 행동에 한해 속성을 변경합니다. 기존 주변 사물 목록과는 별도입니다.',
+ 'group_leisure':'등록한 공동 활동에 참여·구경하며 정원과 종료 시간을 관리합니다. 실제 전송된 참여 행동만 반영합니다.',
+
  'world_calendar':'현실 또는 가상 세계 날짜·요일·계절을 사용합니다.',
  'seasonal_weather':'세계 계절에 설정한 날씨 가중치와 기온 범위를 사용합니다. 세계 달력이 필요합니다.',
  'weekly_schedules':'요일과 시간에 따른 활동·장소 선호를 반영합니다. 세계 달력과 월드 시뮬레이션이 필요합니다.',
@@ -70,3 +87,9 @@ def parse_json(text, label='설정', key=None):
         reason = reasons.get(error.msg,'큰따옴표, 쉼표와 괄호의 짝을 확인하세요.')
         example = JSON_EXAMPLES.get(key,'{"이름": "값"}')
         raise ValueError(f'{label}: JSON 형식이 올바르지 않습니다.\n{error.lineno}번째 줄, {error.colno}번째 글자 부근\n{reason}\n\n{JSON_HELP}\n\n작성 예시: {example}') from None
+
+JSON_EXAMPLES.update(
+ food_definitions='{"토스트": {"aliases": ["토스트 빵"], "unit": "인분", "hunger": 35, "expires_minutes": 180, "dishes": 1, "ingredients": {"빵": 1}}}',
+ object_states='{"창문": {"aliases": [], "properties": {"열림": false}, "actions": {"열었다": {"열림": true}, "닫았다": {"열림": false}}}}',
+ leisure='{"체스": {"aliases": [], "capacity": 2, "minutes": 30, "seat": "테이블"}}',
+ day_outfits='[{"outfit": "회색 코트", "weather": ["비", "눈"]}, {"outfit": "기본 셔츠", "weather": []}]')

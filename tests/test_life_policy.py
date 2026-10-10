@@ -63,6 +63,7 @@ class LifeTests(unittest.TestCase):
         loaded=LifeEngine(self.temp.name);self.assertIn('a:우산',loaded.loans)
         loaded.transfer('우산','b','a');self.assertFalse(loaded.loans)
     def test_sleep_quality_formula_and_disable(self):
+        self.settings['features']['actual_sleep']=False
         self.engine.rng=Mock();self.engine.rng.choices.return_value=['악몽']
         self.state['sleep_interruptions']=2
         self.engine.wake('a',self.state,self.settings);self.assertEqual(self.state['fatigue'],50)

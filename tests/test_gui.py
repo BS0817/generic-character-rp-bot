@@ -32,7 +32,7 @@ class GuiTests(unittest.TestCase):
     def tearDown(self):
         self.window.dirty=False; self.window.close(); self.window.deleteLater(); self.temp.cleanup()
     def test_all_pages_construct_and_world_save(self):
-        for index in range(11):
+        for index in range(13):
             self.window.nav.setCurrentRow(index)
             self.assertEqual(self.window.stack.currentIndex(),index)
         self.window.nav.setCurrentRow(3)
@@ -46,6 +46,21 @@ class GuiTests(unittest.TestCase):
         from setup_wizard import FEATURE_QUESTIONS
         self.assertEqual(len([k for k in saved['features'] if not k.startswith('_')]),len(FEATURE_QUESTIONS))
         self.assertTrue((self.root/'backup_setup').exists())
+    def test_features_are_grouped_with_dividers_and_dependency_switches_work(self):
+        from PySide6.QtWidgets import QWidget,QFrame
+        from setup_wizard import FEATURE_QUESTIONS
+        self.window.nav.setCurrentRow(3);page=self.window.stack.currentWidget()
+        headings=[w.property('feature_group') for w in page.findChildren(QWidget) if w.property('feature_group')]
+        self.assertIn('수면 · 기상 · 복장',headings);self.assertIn('식사 · 조리 · 정리',headings)
+        self.assertEqual(len([f for f in page.findChildren(QFrame) if f.frameShape()==QFrame.Shape.HLine]),len(headings))
+        checks={w.property('field_key'):w for w in page.findChildren(QCheckBox)}
+        self.assertTrue({k for k,_,_ in FEATURE_QUESTIONS}<=set(checks))
+        self.window.confirm=lambda _:True
+        checks['food_stock'].setChecked(True)
+        self.assertTrue(checks['user_world_actions'].isChecked());self.assertTrue(checks['meal_stages'].isChecked())
+        checks['world_simulation'].setChecked(False)
+        self.assertFalse(checks['food_stock'].isChecked())
+
     def test_api_key_roundtrip_masked(self):
         self.window.nav.setCurrentRow(5)
         page=self.window.stack.currentWidget(); fields=page.findChildren(QLineEdit)
