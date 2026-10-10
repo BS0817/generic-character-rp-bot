@@ -26,6 +26,7 @@ RELATIONS_PATH = CONFIG_DIR / "relations.json"
 
 from rp_policy import FEATURES
 from world_calendar import validate_calendar
+from world_actions import validate_extensions
 from feature_dependencies import validate_features, dependency_errors, toggle_changes, LABELS as FEATURE_LABELS
 
 FEATURE_QUESTIONS = [
@@ -168,6 +169,7 @@ def save_json(path, data):
     if path == SETTINGS_PATH:
         validate_features(data)
         validate_calendar(data,load_json(CHARACTERS_PATH,{}),load_json(PLACES_PATH,{}))
+        validate_extensions(load_json(CHARACTERS_PATH,{}),load_json(PLACES_PATH,{}))
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8",
