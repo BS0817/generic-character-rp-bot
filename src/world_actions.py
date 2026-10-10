@@ -4,6 +4,7 @@ The message ID is the idempotency key. Effects and their audit record commit tog
 Ambiguous narration is left unchanged; registered aliases and completed actions only.
 """
 import csv
+import copy
 import hashlib
 import json
 import re
@@ -35,11 +36,12 @@ def completed(text):
 
 
 def quantity(text, default=1):
-    match = re.search(r'(\d+|한|하나|두|둘|세|셋|네|넷|다섯|여섯|일곱|여덟|아홉|열)\s*(?:인분|개|잔|세트|명)', text)
+    match = re.search(r'([+-]?\d+(?:\.\d+)?|한|하나|두|둘|세|셋|네|넷|다섯|여섯|일곱|여덟|아홉|열)\s*(?:인분|개|잔|세트|명)', text)
     if not match:
         return default
     words = {'한':1,'하나':1,'두':2,'둘':2,'세':3,'셋':3,'네':4,'넷':4,'다섯':5,'여섯':6,'일곱':7,'여덟':8,'아홉':9,'열':10}
-    return int(match[1]) if match[1].isdigit() else words[match[1]]
+    if match[1] in words:return words[match[1]]
+    return int(match[1]) if '.' not in match[1] else 0
 
 
 def matched_names(text, definitions):
@@ -149,7 +151,7 @@ class WorldActions:
 
     def _get(self, db, kind, key, default=None):
         row=db.execute('SELECT data FROM state WHERE scope=? AND kind=? AND key=?',(self.scope,kind,key)).fetchone()
-        return json.loads(row[0]) if row else ({} if default is None else default)
+        return json.loads(row[0]) if row else ({} if default is None else copy.deepcopy(default))
 
     def _put(self, db, kind, key, value):
         db.execute('INSERT INTO state VALUES(?,?,?,?) ON CONFLICT(scope,kind,key) DO UPDATE SET data=excluded.data',(self.scope,kind,key,json.dumps(value,ensure_ascii=False)))
@@ -221,7 +223,9 @@ class WorldActions:
                     sink.update(reserved_by=actor,until=now+1800);output.append('설거지 담당 예약: 30분')
             elif '취소' not in text:
                 if sink.get('until',0)>now and sink.get('reserved_by')!=actor: return output+['설거지 보류: 다른 담당자의 예약 중']
-                n=min(sink.get('dirty',0),quantity(text,sink.get('dirty',0)));sink['dirty']-=n
+                requested=quantity(text,sink.get('dirty',0))
+                if requested<0:return output+['설거지 보류: 음수 수량은 반영하지 않습니다.']
+                n=min(sink.get('dirty',0),requested);sink['dirty']-=n
                 sink.update(reserved_by='',until=0);output.append(f'설거지 {n}개 완료')
             self._put(db,'sink',place,sink)
         if enabled(settings,'group_leisure'):

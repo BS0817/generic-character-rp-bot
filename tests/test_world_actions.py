@@ -166,6 +166,15 @@ class WorldTests(unittest.TestCase):
     def test_short_alias_does_not_match_inside_unrelated_noun(self):
         self.assertEqual(self.act('car','자동차를 준비했다'),[])
         self.assertFalse(self.engine.states('food'))
+    def test_invalid_quantities_do_not_create_food_or_dirty_dishes_and_schema_is_immutable(self):
+        self.act('negative','토스트 -2인분을 준비했다')
+        self.act('fraction','토스트 0.5인분을 준비했다')
+        self.assertFalse(self.engine.states('food'))
+        self.engine.correct('sink','주방',{'dirty':3,'reserved_by':'','until':0})
+        self.act('washing','설거지 -2개를 했다')
+        self.assertEqual(self.engine.states('sink')['주방']['dirty'],3)
+        self.act('open','창문을 열었다')
+        self.assertFalse(self.place['object_states']['창문']['properties']['열림'])
 
     def test_wake_response_delays_or_overrides_sleep_without_fabricated_recovery(self):
         engine=LifeEngine(self.temp.name);engine.rng=Mock();engine.rng.choices.return_value=['미룸']
