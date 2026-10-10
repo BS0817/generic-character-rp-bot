@@ -43,6 +43,7 @@ class ModelClient:
             if self.closing: raise GenerationError('종료 중이므로 새 AI 생성을 시작하지 않습니다.')
             self.sequence+=1;ticket=(GENERATION_PRIORITY.get(),self.sequence)
             self.waiters.append(ticket)
+            self.condition.notify_all()
             try:
                 self.condition.wait_for(lambda:self.closing or self.active<self.limit and ticket==min(self.waiters))
                 if self.closing:raise GenerationError('종료 중이므로 대기 중인 AI 생성을 취소합니다.')
