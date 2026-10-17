@@ -149,6 +149,7 @@ class Store:
                     if entry.get('place')==key: entry['place']=None
                 if character.get('private_room') == key:
                     character['private_room'] = None
+                if character.get('grooming_place') == key: character['grooming_place']=''
         for place in data['places'].values():
             if isinstance(place, dict) and place.get('parent') == key:
                 place['parent'] = None
@@ -212,6 +213,7 @@ class DraftStore(Store):
                 for entry in character.get('weekly_schedule',[]):
                     if entry.get('place')==key: entry['place']=None
                 if character.get('private_room') == key: character['private_room'] = None
+                if character.get('grooming_place') == key: character['grooming_place']=''
         for place in self.data['places'].values():
             if isinstance(place,dict) and place.get('parent') == key: place['parent'] = None
         for name in ('characters','places'): self.write_json(name,self.data[name])

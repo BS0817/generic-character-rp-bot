@@ -20,6 +20,23 @@ FEATURES = [
     ('item_loans', '물건 대여·반환 기록', False),
     ('activity_stages', '단계별 장소 활동', False),
     ('outfit_condition', '젖은 복장·건조 상태', False),
+    ('wake_calls', '아침 기상 호출 반응', False),
+    ('weekend_rest', '주말 추가 수면', False),
+    ('actual_sleep', '실제 수면 시간·수면 부족', False),
+    ('morning_routine', '기상 후 준비 단계', False),
+    ('outfit_schedule', '잠옷·날씨별 낮 복장', False),
+    ('user_world_actions', '비멘션 사용자 생활 행동', False),
+    ('food_stock', '사용자 음식 재고·수령·섭취', False),
+    ('ingredient_stock', '조리 식재료 재고', False),
+    ('dishwashing', '사용한 식기·설거지 예약', False),
+    ('object_states', '장소 오브젝트 상태', False),
+    ('group_leisure', '공동 여가 참여·구경', False),
+    ('world_requests', '부탁·쪽지·전달 진행 기록', False),
+    ('lost_found', '물건 보관·분실·반환 기록', False),
+    ('inner_thoughts', '관리자 전용 속마음 기록', False),
+    ('life_statistics', '생활 상태·활동 통계 수집', False),
+    ('hourly_diagnostics', '1시간 간격 AI 운영 진단', False),
+
 ]
 DEFAULT_COMMON_PROMPT = '''[최우선 공통 행동·대화 규칙]
 이 규칙은 세계 규칙·캐릭터 설정의 충돌하는 일반 지시보다 우선한다. 캐릭터 고유의 성격과 말투는 유지한다.

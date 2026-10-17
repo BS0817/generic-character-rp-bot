@@ -15,14 +15,18 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QFormLayout,
     QLabel, QPushButton, QLineEdit, QPlainTextEdit, QCheckBox, QComboBox,
     QListWidget, QStackedWidget, QScrollArea, QMessageBox, QInputDialog,
-    QFileDialog, QDateEdit, QSpinBox, QDoubleSpinBox, QTimeEdit, QDialog, QDialogButtonBox, QSystemTrayIcon, QMenu, QStyle,
+    QFrame, QFileDialog, QDateEdit, QSpinBox, QDoubleSpinBox, QTimeEdit, QDialog, QDialogButtonBox, QSystemTrayIcon, QMenu, QStyle,
 )
 from settings_store import DraftStore, app_root, atomic_write
 from app_version import VERSION
 from runtime_options import OPTIONS, validate_options
 from updater import latest_release, stage_release, launch_update, bot_running, BotLock
 from setup_wizard import FEATURE_QUESTIONS
+from feature_groups import grouped_features
 from monitor_panel import MonitorPanel
+from world_panel import WorldPanel
+from statistics_panel import StatisticsPanel
+from world_actions import validate_extensions
 from rp_policy import DEFAULT_COMMON_PROMPT, GUIDE_FIELDS, build_prompt, enabled
 from form_help import CHECKBOX_HELP, JSON_HELP, JSON_EXAMPLES, parse_json
 from feature_dependencies import validate_features, toggle_changes, LABELS as FEATURE_LABELS
@@ -46,9 +50,9 @@ QScrollArea { border:0; }
 QToolTip { background:#343b51; color:white; }
 '''
 CHAR_DEFAULT = dict(name='새 캐릭터', token_env='', prompt_file='', private_room=None,
-    default_outfit='', current_outfit='', outfit_preferences_enabled=False, preferred_style='', preferred_colors='', disliked_outfits='', hated_outfits='', outfit_notes='', sleep_start_range=[[1,0],[3,0]], wake_range=[[8,0],[10,0]], inventory=[], habits=[], goals=[], place_weights={}, restricted_places=[], weekly_schedule=[])
+    default_outfit='', current_outfit='', outfit_preferences_enabled=False, preferred_style='', preferred_colors='', disliked_outfits='', hated_outfits='', outfit_notes='', sleep_start_range=[[1,0],[3,0]], wake_range=[[8,0],[10,0]], inventory=[], habits=[], goals=[], place_weights={}, restricted_places=[], weekly_schedule=[], required_sleep_hours=8., sleep_recovery_per_hour=7., weekend_extra_sleep_hours=1., wake_acceptance=.65, sleep_outfit='', day_outfits=[], grooming_place='')
 PLACE_DEFAULT = dict(channel_name='', description='', objects=[], group='public', parent=None,
-    allowed_characters=[], opening_hours=copy.deepcopy(HOURS_DEFAULT), seats={}, menus={'전체':[]}, nap_allowed=False, outdoor=False, activities=[], time_multipliers=dict(morning=1.,day=1.,evening=1.,night=1.,late_night=1.))
+    allowed_characters=[], opening_hours=copy.deepcopy(HOURS_DEFAULT), seats={}, menus={'전체':[]}, nap_allowed=False, outdoor=False, activities=[], routine_capacity=0, food_definitions={}, object_states={}, leisure={}, time_multipliers=dict(morning=1.,day=1.,evening=1.,night=1.,late_night=1.))
 LABELS = {'outfit_preferences_enabled':'복장 취향 사용','preferred_style':'선호 스타일','preferred_colors':'선호 색·소재','disliked_outfits':'별로 좋아하지 않는 복장','hated_outfits':'싫어하는 복장','outfit_notes':'복장 취향 추가 설명','seats':'좌석별 정원 (JSON)','menus':'시간대별 메뉴 (JSON)','nap_allowed':'낮잠 가능한 장소','outdoor':'야외 장소','activities':'단계별 활동 (한 줄에 하나)','default_outfit':'기본 복장','current_outfit':'현재 복장 (비우면 기본 복장)','name':'이름','token_env':'토큰 환경변수 이름','prompt_file':'프롬프트 경로',
     'private_room':'개인실 이름 (없으면 비워두기)','sleep_start_range':'취침 시작 범위','wake_range':'기상 범위',
     'inventory':'소지품 (한 줄에 하나)','habits':'생활 습관 (한 줄에 하나)','goals':'장기 목표 (한 줄에 하나)',
@@ -57,7 +61,7 @@ LABELS = {'outfit_preferences_enabled':'복장 취향 사용','preferred_style':
     'parent':'상위 장소 (없으면 비워두기)','allowed_characters':'출입 허용 캐릭터 키 (비우면 모두)',
     'place_weights':'장소별 방문 가중치','time_multipliers':'시간대별 방문 배율','context':'관계 설명'}
 
-LABELS.update(weekly_schedule='요일별 일정 (JSON)', opening_hours='영업시간', enabled='이 장소의 영업시간 적용', days='요일 (한 줄에 하나: 월~일)', opens='영업 시작 (HH:MM)', closes='영업 종료 (HH:MM)', start_date='가상 세계 시작 날짜', start_time='가상 세계 시작 시각 (HH:MM)', show_date='환경에 날짜 표시', show_weekday='환경에 요일 표시', show_season='환경에 계절 표시', season_profiles='계절별 월·기온·날씨 (JSON)', date='날짜 / 기준 시작일', offset_days='시작일 기준 기념일 일수 (100일: 100)', participants='관련 인물 (캐릭터 키·사용자 ID, 한 줄에 하나)', known_by='이 기념일을 아는 캐릭터 키 (한 줄에 하나)', public='모든 캐릭터에게 공개', note='기념일 설명', kind='기념일 종류', leap_day='2월 29일 처리', mode='세계 시간 방식')
+LABELS.update(grooming_place='몸단장 장소 (비우면 현재 장소)', routine_capacity='몸단장 동시 이용 정원 (0=제한 없음)', weekend_extra_sleep_hours='주말 추가 수면 시간 (0~4시간)', wake_acceptance='기상 요청 수락 성향 (0~1)', required_sleep_hours='필요 수면 시간 (시간)', sleep_recovery_per_hour='시간당 피로 회복량', sleep_outfit='수면 복장', day_outfits='날씨별 낮 복장 (JSON)', food_definitions='음식 재고 정의 (JSON)', object_states='변화 가능한 사물·행동 (JSON)', leisure='공동 여가 설정 (JSON)', weekly_schedule='요일별 일정 (JSON)', opening_hours='영업시간', enabled='이 장소의 영업시간 적용', days='요일 (한 줄에 하나: 월~일)', opens='영업 시작 (HH:MM)', closes='영업 종료 (HH:MM)', start_date='가상 세계 시작 날짜', start_time='가상 세계 시작 시각 (HH:MM)', show_date='환경에 날짜 표시', show_weekday='환경에 요일 표시', show_season='환경에 계절 표시', season_profiles='계절별 월·기온·날씨 (JSON)', date='날짜 / 기준 시작일', offset_days='시작일 기준 기념일 일수 (100일: 100)', participants='관련 인물 (캐릭터 키·사용자 ID, 한 줄에 하나)', known_by='이 기념일을 아는 캐릭터 키 (한 줄에 하나)', public='모든 캐릭터에게 공개', note='기념일 설명', kind='기념일 종류', leap_day='2월 29일 처리', mode='세계 시간 방식')
 
 
 class Job(QThread):
@@ -126,7 +130,7 @@ class Fields:
         self.readers = {}
     def add(self, key, value, label=None, secret=False, multiline=False):
         label = label or LABELS.get(key, key)
-        if key in ('seats','menus','weekly_schedule','season_profiles'):
+        if not isinstance(value,bool) and key in ('seats','menus','weekly_schedule','season_profiles','food_definitions','object_states','leisure','day_outfits'):
             widget = ResizableTextEdit(json.dumps(value,ensure_ascii=False,indent=2), 240)
             widget.setPlaceholderText(JSON_EXAMPLES.get(key,''))
             widget.setToolTip(JSON_HELP)
@@ -194,6 +198,8 @@ class Window(QMainWindow):
         self.dirty_forms = set()
         self._saving_all = False
         self.bot_process = None
+        self.closing_bot = False
+        self.shutdown_started = None
         self.job = None
         self.release = None
         self.dirty = False
@@ -203,10 +209,10 @@ class Window(QMainWindow):
         sidebar=QVBoxLayout(); brand=QLabel('RPBot'); brand.setObjectName('title'); sidebar.addWidget(brand)
         sidebar.addWidget(QLabel(f'캐릭터 세계 관리  ·  v{VERSION}'))
         self.nav=QListWidget(); self.nav.setFixedWidth(220)
-        self.nav.addItems(['시작하기','캐릭터','장소','세계관 · 기능','관계','API · Discord','백업 · 복원','업데이트','카테고리','모니터링','세계 달력 · 기념일'])
+        self.nav.addItems(['시작하기','캐릭터','장소','세계관 · 기능','관계','API · Discord','백업 · 복원','업데이트','카테고리','모니터링','세계 달력 · 기념일','생활 자료','생활 통계'])
         sidebar.addWidget(self.nav); layout.addLayout(sidebar)
         self.stack=QStackedWidget(); layout.addWidget(self.stack,1)
-        self.builders=[self.home,lambda:self.collection('characters'),lambda:self.collection('places'),self.world,self.relations,self.connections,self.backups,self.updates,self.categories,lambda:MonitorPanel(self),self.calendar]
+        self.builders=[self.home,lambda:self.collection('characters'),lambda:self.collection('places'),self.world,self.relations,self.connections,self.backups,self.updates,self.categories,lambda:MonitorPanel(self),self.calendar,lambda:WorldPanel(self),lambda:StatisticsPanel(self)]
         for _ in self.builders: self.stack.addWidget(QWidget())
         self.nav.currentRowChanged.connect(self.navigate)
         self.nav.setCurrentRow(0)
@@ -275,6 +281,7 @@ class Window(QMainWindow):
 
     def validate_configuration(self):
         validate_features(self.store.data['settings'])
+        validate_extensions(self.store.data['characters'],self.store.data['places'])
         validate_calendar(self.store.data['settings'],self.store.data['characters'],self.store.data['places'])
 
     def navigate(self,index):
@@ -283,7 +290,7 @@ class Window(QMainWindow):
         try:
             if index not in self.page_cache:
                 page=self.builders[index]()
-                if index in (0,6,7,8,9): page.setProperty('skip_dirty',True)
+                if index in (0,6,7,8,9,11,12): page.setProperty('skip_dirty',True)
                 old=self.stack.widget(index); self.stack.removeWidget(old); old.deleteLater()
                 self.stack.insertWidget(index,page); self.page_cache[index]=page
                 self.track(page)
@@ -572,7 +579,13 @@ class Window(QMainWindow):
         fields.add('custom_conversation_rule',data.get('custom_conversation_rule',''),'직접 설정 대화 방식',multiline=True)
         fields.add('timezone',data.get('timezone','Asia/Seoul'),'생활 시간대')
         features=Fields(fields.form)
-        checks={key:features.add(key,enabled(data,key),label) for key,label,default in FEATURE_QUESTIONS}
+        checks={}
+        for title,items in grouped_features(FEATURE_QUESTIONS):
+            heading=QWidget();row=QHBoxLayout(heading);row.setContentsMargins(0,16,0,6)
+            caption=QLabel(title);caption.setStyleSheet('font-weight:700; color:#cbbfff;');row.addWidget(caption)
+            divider=QFrame();divider.setFrameShape(QFrame.Shape.HLine);divider.setStyleSheet('color:#454b63;');row.addWidget(divider,1)
+            heading.setProperty('feature_group',title);fields.form.addRow(heading)
+            for key,label,default in items: checks[key]=features.add(key,enabled(data,key),label)
         def change_feature(key,on):
             # Reconstruct the state before this click for a reversible dependency transaction.
             values=features.values(); values[key]=not on
@@ -708,9 +721,9 @@ class Window(QMainWindow):
         page,layout=self.page('API · Discord 연결','캐릭터별 토큰은 캐릭터 메뉴에서 입력하세요. 빈 값으로 저장하면 해당 연결 값이 제거됩니다.')
         page.setProperty('draft_key','connections')
         fields,content=self.scrolled_form(layout); secrets=[]
-        for key,label in [('OPENAI_API_KEY','OpenAI API 키'),('DISCORD_GUILD_ID','본서버 ID'),('DISCORD_STATUS_TOKEN','상태봇 토큰'),('DISCORD_STATUS_CHANNEL','상태 채널 이름'),('DISCORD_COMMAND_CHANNEL_ID','명령 채널 ID'),('DISCORD_PERSONAL_RP_GUILD_IDS','개인 RP 서버 ID (쉼표 구분)')]:
+        for key,label in [('OPENAI_API_KEY','AI API 키'),('RPBOT_API_BASE','API 주소 (비우면 OpenAI 기본값)'),('RPBOT_API_STYLE','API 방식 (responses / chat)'),('RPBOT_MODEL','생성 모델 (비우면 기존 모델)'),('RPBOT_DIAGNOSTIC_MODEL','운영 진단 모델 (비우면 생성 모델)'),('RPBOT_DIAGNOSTIC_API_KEY','운영 진단 API 키 (비우면 기본 API 키)'),('RPBOT_API_TIMEOUT','API 제한 시간 (초, 기본 60)'),('RPBOT_GENERATION_CONCURRENCY','동시 생성 수 (1~8, 기본 4)'),('DISCORD_GUILD_ID','본서버 ID'),('DISCORD_STATUS_TOKEN','상태봇 토큰'),('DISCORD_STATUS_CHANNEL','상태 채널 이름'),('DISCORD_COMMAND_CHANNEL_ID','명령 채널 ID'),('DISCORD_PERSONAL_RP_GUILD_IDS','개인 RP 서버 ID (쉼표 구분)')]:
             secret='TOKEN' in key or 'API_KEY' in key
-            widget=fields.add(key,self.store.env.get(key,'') or '',label,secret=secret)
+            widget=fields.add(key,self.store.env.get(key,'') or {'RPBOT_API_STYLE':'responses','RPBOT_API_TIMEOUT':'60','RPBOT_GENERATION_CONCURRENCY':'4'}.get(key,''),label,secret=secret)
             if secret: secrets.append(widget)
         show=QCheckBox('키와 토큰 보기'); show.setProperty('skip_dirty',True); layout.addWidget(checkbox_row(show,'show_token'))
         show.toggled.connect(lambda checked:[widget.setEchoMode(QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password) for widget in secrets])
@@ -719,6 +732,9 @@ class Window(QMainWindow):
             for key in ('DISCORD_GUILD_ID','DISCORD_COMMAND_CHANNEL_ID'):
                 if values[key] and not values[key].isdigit(): raise ValueError('Discord ID는 숫자만 입력해주세요.')
             if any(not v.strip().isdigit() for v in values['DISCORD_PERSONAL_RP_GUILD_IDS'].split(',') if v.strip()): raise ValueError('개인 서버 ID는 숫자를 쉼표로 구분해주세요.')
+            if values.get('RPBOT_API_STYLE') not in ('responses','chat'): raise ValueError('API 방식은 responses 또는 chat으로 입력하세요.')
+            if not 5<=float(values.get('RPBOT_API_TIMEOUT') or 60)<=300: raise ValueError('API 제한 시간은 5~300초로 입력하세요.')
+            if not 1<=int(values.get('RPBOT_GENERATION_CONCURRENCY') or 4)<=8: raise ValueError('동시 생성 수는 1~8로 입력하세요.')
             self.store.write_env(values); self.ok()
         self.savers['connections']=save
         self.button(layout,'연결 설정 저장',self.save_all).setToolTip('다른 탭의 수정 내용도 함께 저장합니다.'); return page
@@ -794,7 +810,33 @@ class Window(QMainWindow):
     def finish_install(self):
         if self.job and self.job.isRunning(): QTimer.singleShot(100,self.finish_install)
         else: self.close()
+    def wait_for_bot_shutdown(self):
+        from desktop_monitor import read_snapshot
+        import time
+        if not bot_running(self.root):
+            self.closing_bot=False;self.close();return
+        root=Path(self.store.env.get('BOT_DATA_DIR') or self.root)
+        if not root.is_absolute():root=self.root/root
+        snapshot=read_snapshot(root);requests=snapshot.get('requests',{})
+        jobs=snapshot.get('world',{}).get('jobs',[])
+        active=[j for j in jobs if j['phase'] in ('생성 중','전송 중')]
+        kinds=', '.join(sorted({j['kind'] for j in active})) or '연결·상태 정리'
+        self.statusBar().showMessage(f'종료 대기 · {kinds} · 진행 {len(active)}건 · 표시 중 요청 {len(requests)}건 · {int(time.monotonic()-self.shutdown_started)}초')
+        QTimer.singleShot(500,self.wait_for_bot_shutdown)
+
     def closeEvent(self,event):
+        if self.closing_bot:event.ignore();return
+        for panel in self.page_cache.values():
+            if isinstance(panel,WorldPanel) and panel.editing:
+                dialog=QMessageBox(self);dialog.setWindowTitle('생활 자료 편집 저장');dialog.setText('편집 중인 실제 생활 자료를 저장할까요?')
+                save=dialog.addButton('저장 후 계속',QMessageBox.ButtonRole.AcceptRole)
+                discard=dialog.addButton('저장하지 않고 계속',QMessageBox.ButtonRole.DestructiveRole)
+                dialog.addButton('취소',QMessageBox.ButtonRole.RejectRole);dialog.setDefaultButton(save);dialog.exec()
+                if dialog.clickedButton()==save:
+                    try:panel.save(confirm=False)
+                    except Exception as error:self.error(error);event.ignore();return
+                elif dialog.clickedButton()==discard:panel.cancel()
+                else:event.ignore();return
         if self.job and self.job.isRunning():
             self.error('다운로드 또는 확인이 끝난 뒤 창을 닫아주세요.'); event.ignore(); return
         if self.dirty:
@@ -820,7 +862,11 @@ class Window(QMainWindow):
             if tray is not None and dialog.clickedButton() == tray:
                 self.hide(); event.ignore(); return
             if dialog.clickedButton() != stop: event.ignore(); return
-            self.stop_bot()
+            import time
+            self.closing_bot=True;self.shutdown_started=time.monotonic()
+            self.stop_bot();self.nav.setCurrentRow(9)
+            QTimer.singleShot(500,self.wait_for_bot_shutdown)
+            event.ignore();return
         self.tray.hide()
         event.accept()
 
