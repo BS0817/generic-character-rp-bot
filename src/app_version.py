@@ -1,2 +1,2 @@
-VERSION = "0.1.7"
+VERSION = "0.1.8"
 REPOSITORY = "BS0817/generic-character-rp-bot"
