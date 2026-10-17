@@ -1,0 +1,69 @@
+name: Publish RPBot v0.1.8
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/release-v0.1.8.yml"]
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 3467b165de13789091ffd57858ed8c3e8efdeeb6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify release version
+        run: |
+          python -c "import sys; sys.path.insert(0,'src'); from app_version import VERSION; assert VERSION == '0.1.8'"
+      - name: Download tested Windows package
+        uses: actions/download-artifact@v4
+        with:
+          name: Generic-Character-RP-Bot-Windows
+          run-id: 38987019063
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: release-assets
+      - name: Verify package checksum
+        shell: powershell
+        run: |
+          $zip = "release-assets/Generic-Character-RP-Bot-Windows.zip"
+          $expected = (Get-Content "$zip.sha256").Split(" ")[0].ToLower()
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $expected) { throw "Package checksum mismatch" }
+      - name: Publish approved v0.1.8 release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/Generic-Character-RP-Bot-Windows.zip
+            release-assets/Generic-Character-RP-Bot-Windows.zip.sha256
+          tag_name: v0.1.8
+          target_commitish: 3467b165de13789091ffd57858ed8c3e8efdeeb6
+          name: "RPBot v0.1.8 — 기능 분류 · 선택형 생활 확장"
+          body: |
+            ## 주요 변경
+            - 셋업 기능 ON/OFF를 8개 묶음으로 분류하고 제목·구분선·설명·필수 기능 안내를 표시합니다.
+            - 선택형 음식 재고·세트·식재료 상자·설거지, 사물 속성, 공동 여가, 부탁·쪽지·분실물 기능을 추가합니다.
+            - 실제 수면량·수면 부족, 기상 호출·주말 수면·준비 루틴, 등록된 잠옷·날씨별 복장을 지원합니다.
+            - 관리자 생활 자료·통계 화면, 그래프·CSV, 관리자 전용 속마음과 공개 월드 AI 진단을 추가합니다.
+            - AI 제공업체·모델 설정과 생성 대기 우선순위를 지원하고, 전송 후 생활 효과 반영 및 종료 진행 표시를 보완합니다.
+            
+            ## 사용·업데이트
+            새 생활 기능은 기본적으로 꺼져 있습니다. 셋업에서 필요한 기능을 켜고 저장한 뒤 봇을 재시작하세요.
+            기존 사용자는 봇을 종료하고 RPBot_Setup.exe → 업데이트에서 확인·설치하세요.
+            수동 업데이트는 RPBot.exe, RPBot_Setup.exe, RPBot_Updater.exe 세 실행 파일만 교체하세요.
+            기존 config/, prompts/, .env, 데이터베이스와 생활 자료는 유지하세요.
+            새 설치는 ZIP 전체를 풀고 연결 정보를 설정하세요.
+            
+            ## 검증·적용 범위
+            Windows 실행 파일 3종 빌드, 회귀 검사 109개, ZIP 패키징 및 SHA-256 검증을 통과했습니다.
+            실제 Discord 장기 운영과 API 제공업체별 실호출은 별도 확인이 필요합니다.
+            DDL 전용 Gateway/Worker의 별도 프로세스 분리, 자동 재료 배송, 관계 동선 학습은 이번 릴리스에 포함하지 않습니다.
+            자세한 설정·명령은 패키지의 docs/life_extensions_ko.md를 참고하세요.
+          make_latest: true
+          draft: false
+          prerelease: false
