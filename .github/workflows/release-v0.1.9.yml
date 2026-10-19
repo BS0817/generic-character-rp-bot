@@ -1,0 +1,68 @@
+name: Publish RPBot v0.1.9
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/release-v0.1.9.yml"]
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: c7004b5172f7c2cd2c94ad383d677b615160fc70
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify release version
+        run: |
+          python -c "import sys; sys.path.insert(0,'src'); from app_version import VERSION; assert VERSION == '0.1.9'"
+      - name: Download tested Windows package
+        uses: actions/download-artifact@v4
+        with:
+          name: Generic-Character-RP-Bot-Windows
+          run-id: 39189554959
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: release-assets
+      - name: Verify package checksum
+        shell: powershell
+        run: |
+          $zip = "release-assets/Generic-Character-RP-Bot-Windows.zip"
+          $expected = (Get-Content "$zip.sha256").Split(" ")[0].ToLower()
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $expected) { throw "Package checksum mismatch" }
+      - name: Publish approved v0.1.9 release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/Generic-Character-RP-Bot-Windows.zip
+            release-assets/Generic-Character-RP-Bot-Windows.zip.sha256
+          tag_name: v0.1.9
+          target_commitish: c7004b5172f7c2cd2c94ad383d677b615160fc70
+          name: "RPBot v0.1.9 — 멘션 응답 오류 수정"
+          body: |
+            ## 멘션 응답 오류 수정
+            대화 반복 검사가 켜져 있을 때 멘션에 답하지 못하고 다음 오류가 발생하는 문제를 수정했습니다.
+            TypeError: sequence index must be integer, not 'slice'
+            
+            실제 대화 기록(deque)을 목록으로 변환한 뒤 최근 6개를 검사합니다. 기록을 변경하지 않고 반복 검사와 재생성 제한을 유지합니다.
+            토큰 교체나 API 추가 결제가 필요한 오류가 아닙니다.
+            
+            ## 업데이트
+            봇을 종료하고 RPBot_Setup.exe → 업데이트에서 설치하세요.
+            수동 업데이트는 RPBot.exe, RPBot_Setup.exe, RPBot_Updater.exe 세 실행 파일만 교체하세요.
+            기존 config/, prompts/, .env, 데이터베이스는 유지하세요.
+            임시로 대화 반복·종료 검사를 껐다면 업데이트 후 다시 켜고 저장·재시작하세요. 업데이트가 기존 설정을 자동으로 켜거나 초기화하지 않습니다.
+            
+            ## 검증
+            수정 전 실제 deque 기록으로 동일 예외를 재현했고 수정 후 통과했습니다.
+            정상 답변, 반복 재생성 제한, 최근 6개 범위, 빈 기록, 문맥 복원과 기록 보존을 포함해 검사 112개가 통과했습니다.
+            Windows 실행 파일 3종 빌드와 ZIP·SHA-256 검증을 완료했습니다.
+            유료 AI API 및 실제 Discord 서버에 대한 실호출 검사는 포함하지 않습니다.
+          make_latest: true
+          draft: false
+          prerelease: false
