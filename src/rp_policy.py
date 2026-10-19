@@ -92,7 +92,8 @@ def normalize(text):
 def dialogue_reason(text, history):
     text = re.sub(r'^ACTION\|.*$', '', text, flags=re.M).strip()
     norm = normalize(text)
-    recent = [normalize(str(t).split(':',1)[-1]) for t in history[-6:]]
+    # Live conversation history is a deque: take a list snapshot before slicing.
+    recent = [normalize(str(t).split(':',1)[-1]) for t in list(history)[-6:]]
     if norm and any(norm == old or (len(norm)>18 and SequenceMatcher(None,norm,old).ratio()>.88) for old in recent): return '최근 발언 반복'
     if re.fullmatch(r'(그래|좋아|맞아|알겠어|응|그렇군|그러네)[.!…\s]*',text) and sum(any(w in t for w in ('그래','좋아','맞아','알겠어')) for t in recent)>=2: return '단순 동의 연쇄'
     if any(w in text for w in ('잠깐 말 걸어도','말 걸어도 괜찮','이야기해도 괜찮')): return '상투적인 허락 질문'
